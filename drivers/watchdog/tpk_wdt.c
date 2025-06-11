@@ -63,7 +63,7 @@ static int soft_noboot = 0;
 
 module_param(soft_noboot, int, 0);
 MODULE_PARM_DESC(soft_noboot,
-	"Asterfusion_WatchDog action, set to 1 to ignore reboots, 0 to reboot "
+	"_WatchDog action, set to 1 to ignore reboots, 0 to reboot "
 					"(default depends on ONLY_TESTING)");
 
 static int soft_panic;
@@ -320,7 +320,7 @@ static int __init watchdog_init(void)
 #endif
     dog_start = 1;
 
-	pr_info("Asterfusion initialized. soft_noboot=%d soft_margin=%d sec soft_panic=%d (nowayout=%d)\n",
+	pr_info(" initialized. soft_noboot=%d soft_margin=%d sec soft_panic=%d (nowayout=%d)\n",
 		soft_noboot, soft_margin, soft_panic, nowayout);
 	pr_info("             soft_reboot_cmd=%s \n", soft_reboot_cmd ?: "<not set>");
 
@@ -340,7 +340,7 @@ module_init(watchdog_init);
 module_exit(watchdog_exit);
 
 MODULE_AUTHOR("marvin");
-MODULE_DESCRIPTION("Asterfusion Watchdog Device Driver");
+MODULE_DESCRIPTION("Watchdog Device Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_VERSION);
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
