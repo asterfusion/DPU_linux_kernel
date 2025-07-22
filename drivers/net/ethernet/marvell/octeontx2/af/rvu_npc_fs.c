@@ -1644,7 +1644,7 @@ static int npc_update_dmac_value(struct rvu *rvu, int npcblkaddr,
 
 	npc_update_entry(rvu, NPC_DMAC, entry,
 			 ether_addr_to_u64(pfvf->mac_addr), 0,
-			 0xffffffffffffull, 0, intf);
+			 0x000000000000ull, 0, intf);
 
 	write_req.hdr.pcifunc = rule->owner;
 	write_req.entry = rule->entry;

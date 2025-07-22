@@ -2280,6 +2280,34 @@ static void igb_set_i2c_bb(struct e1000_hw *hw)
 }
 #endif
 
+#if 1
+/* add by zqt*/
+static void e1000_register_set(struct e1000_hw *hw)
+{
+	u32 status;
+	status = rd32(E1000_CTRL);
+	status |= E1000_CTRL_FD | E1000_CTRL_SLU | E1000_CTRL_FRCSPD |
+			E1000_CTRL_FRCDPX | E1000_CTRL_SPD_1000;
+	status |= E1000_CTRL_SLU;
+	status &= ~(E1000_CTRL_RFCE | E1000_CTRL_TFCE | E1000_CTRL_SPD_100);
+	wr32(E1000_CTRL, status);
+
+	status = rd32(E1000_PCS_LCTL);
+	status |= E1000_PCS_LCTL_FSD |
+			  E1000_PCS_LCTL_FORCE_FCTRL |
+			  E1000_PCS_LCTL_FDV_FULL |
+			  E1000_PCS_LCTL_FSV_1000 |
+			  E1000_PCS_LCTL_FORCE_LINK |
+			  E1000_PCS_LCTL_FLV_LINK_UP;
+	status &= ~(E1000_PCS_LCTL_AN_ENABLE | E1000_PCS_LCTL_AN_TIMEOUT);
+	wr32(E1000_PCS_LCTL, status);
+
+	status = rd32(E1000_CONNSW);
+	status &= ~(E1000_CONNSW_ENRGSRC);
+	wr32(E1000_CONNSW, status);
+}
+#endif
+
 void igb_reset(struct igb_adapter *adapter)
 {
 	struct pci_dev *pdev = adapter->pdev;
@@ -3492,6 +3520,9 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	device_set_wakeup_enable(&adapter->pdev->dev,
 				 adapter->flags & IGB_FLAG_WOL_SUPPORTED);
+
+	//	/* additional configuration by zqt*/
+		e1000_register_set(hw);
 
 	/* reset the hardware with the new settings */
 	igb_reset(adapter);
