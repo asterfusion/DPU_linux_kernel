@@ -1,0 +1,577 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* Copyright (C) 2021 Marvell. */
+
+#include "otx2_cpt_devlink.h"
+
+static int otx2_cpt_dl_egrp_create(struct devlink *dl, u32 id,
+				   struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+
+	return otx2_cpt_dl_custom_egrp_create(cptpf, ctx);
+}
+
+static int otx2_cpt_dl_egrp_delete(struct devlink *dl, u32 id,
+				   struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+
+	return otx2_cpt_dl_custom_egrp_delete(cptpf, ctx);
+}
+
+static int otx2_cpt_dl_uc_info(struct devlink *dl, u32 id,
+			       struct devlink_param_gset_ctx *ctx)
+{
+	ctx->val.vstr[0] = '\0';
+
+	return 0;
+}
+
+static int otx2_cpt_dl_max_rxc_icb_cnt(struct devlink *dl, u32 id,
+				       struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+
+	otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_RXC_CFG1, &reg_val,
+			     BLKADDR_CPT0);
+	ctx->val.vu16 = (reg_val >> 32) & 0x1FF;
+
+	return 0;
+}
+
+static int otx2_cpt_dl_max_rxc_icb_cnt_set(struct devlink *dl, u32 id,
+					   struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+
+	if (cptpf->enabled_vfs != 0)
+		return -EPERM;
+
+	if (cpt_feature_rxc_icb_cnt(pdev)) {
+		otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_RXC_CFG1, &reg_val,
+				     BLKADDR_CPT0);
+		reg_val &= ~(0x1FFULL << 32);
+		reg_val |= (u64)ctx->val.vu16 << 32;
+		return otx2_cpt_write_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_RXC_CFG1,
+					     reg_val, BLKADDR_CPT0);
+	}
+	return 0;
+}
+
+static int otx2_cpt_dl_t106_mode_get(struct devlink *dl, u32 id,
+				     struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+
+	otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTL, &reg_val,
+			     BLKADDR_CPT0);
+	ctx->val.vu8 = (reg_val >> 18) & 0x1;
+
+	return 0;
+}
+
+static int otx2_cpt_dl_t106_mode_set(struct devlink *dl, u32 id,
+				     struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+
+	if (cptpf->enabled_vfs != 0 || cptpf->eng_grps.is_grps_created)
+		return -EPERM;
+
+	if (cpt_feature_sgv2(pdev)) {
+		otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTL,
+				     &reg_val, BLKADDR_CPT0);
+		reg_val &= ~(0x1ULL << 18);
+		reg_val |= ((u64)ctx->val.vu8 & 0x1) << 18;
+		return otx2_cpt_write_af_reg(&cptpf->afpf_mbox, pdev,
+					     CPT_AF_CTL, reg_val, BLKADDR_CPT0);
+	}
+
+	return 0;
+}
+
+static int cn20k_cpt_get_res_meta_offset(struct devlink *dl, u32 id,
+					 struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+
+	otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTL, &reg_val,
+			     BLKADDR_CPT0);
+	ctx->val.vu8 = FIELD_GET(RES_META_OFFSET_MASK, reg_val);
+
+	return 0;
+}
+
+static int cn20k_cpt_set_res_meta_offset(struct devlink *dl, u32 id,
+					 struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+
+	if (cptpf->enabled_vfs != 0 || cptpf->eng_grps.is_grps_created)
+		return -EPERM;
+
+	otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTL,
+			     &reg_val, BLKADDR_CPT0);
+	reg_val &= ~RES_META_OFFSET_MASK;
+	reg_val |= FIELD_PREP(RES_META_OFFSET_MASK, (u64)ctx->val.vu8);
+	return otx2_cpt_write_af_reg(&cptpf->afpf_mbox, pdev,
+				     CPT_AF_CTL, reg_val, BLKADDR_CPT0);
+}
+
+static int cn20k_cpt_dl_cq_get(struct devlink *dl, u32 id,
+			       struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+
+	switch (id) {
+	case CN20K_CPT_DEVLINK_PARAM_ID_UC_COMPLETION_CODE_INDEX:
+		ctx->val.vu8 = cpt_dl->uc_compcode;
+		break;
+
+	case CN20K_CPT_DEVLINK_PARAM_ID_COMPLETION_CODE_TO_CQ:
+		otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev,
+				     CPT_AF_UCCX_CTL(cpt_dl->uc_compcode),
+				     &reg_val, BLKADDR_CPT0);
+		ctx->val.vu8 = reg_val & 0x3;
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int cn20k_cpt_dl_cq_set(struct devlink *dl, u32 id,
+			       struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+
+	switch (id) {
+	case CN20K_CPT_DEVLINK_PARAM_ID_UC_COMPLETION_CODE_INDEX:
+		cpt_dl->uc_compcode = ctx->val.vu8;
+		return 0;
+
+	case CN20K_CPT_DEVLINK_PARAM_ID_COMPLETION_CODE_TO_CQ:
+		otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev,
+				     CPT_AF_UCCX_CTL(cpt_dl->uc_compcode),
+				     &reg_val, BLKADDR_CPT0);
+		reg_val &= ~0x3ULL;
+		reg_val |= (ctx->val.vu8 & 0x3);
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return otx2_cpt_write_af_reg(&cptpf->afpf_mbox, pdev,
+				     CPT_AF_UCCX_CTL(cpt_dl->uc_compcode),
+				     reg_val, BLKADDR_CPT0);
+}
+
+static int cn20k_cpt_dl_get_psp_timer_jitter_correct(struct devlink *dl, u32 id,
+						     struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+	int ret = 0;
+
+	ret = otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTX_PSP_TIMER_CTL,
+				   &reg_val, BLKADDR_CPT0);
+	if (ret)
+		return ret;
+	ctx->val.vu8 = FIELD_GET(PSP_TIMER_JITTER_CORRECT_MASK, reg_val);
+	return 0;
+}
+
+static int cn20k_cpt_dl_set_psp_timer_jitter_correct(struct devlink *dl, u32 id,
+						     struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+	int ret = 0;
+
+	ret = otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTX_PSP_TIMER_CTL,
+				   &reg_val, BLKADDR_CPT0);
+	if (ret)
+		return ret;
+
+	reg_val &= ~PSP_TIMER_JITTER_CORRECT_MASK;
+	reg_val |= FIELD_PREP(PSP_TIMER_JITTER_CORRECT_MASK, (u64)ctx->val.vu8);
+	return otx2_cpt_write_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTX_PSP_TIMER_CTL,
+				     reg_val, BLKADDR_CPT0);
+}
+
+static int cn20k_cpt_dl_validate_psp_timer_jitter_correct(struct devlink *devlink, u32 id,
+							  union devlink_param_value val,
+							  struct netlink_ext_ack *extack)
+{
+	return (val.vu8 > 1) ? -EINVAL : 0;
+}
+
+static int cn20k_cpt_dl_get_psp_timer_add_value(struct devlink *dl, u32 id,
+						struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0;
+	int ret = 0;
+
+	ret = otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTX_PSP_TIMER_CTL,
+				   &reg_val, BLKADDR_CPT0);
+	if (ret)
+		return ret;
+
+	reg_val &= PSP_TIMER_ADD_VALUE_MASK;
+	snprintf(ctx->val.vstr, sizeof(ctx->val.vstr), "%llu", reg_val);
+	return 0;
+}
+
+static int cn20k_cpt_dl_set_psp_timer_add_value(struct devlink *dl, u32 id,
+						struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u64 reg_val = 0, usrval = 0;
+	int ret = 0;
+
+	ret = otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTX_PSP_TIMER_CTL,
+				   &reg_val, BLKADDR_CPT0);
+	if (ret)
+		return ret;
+
+	ret = kstrtoull(ctx->val.vstr, 0, &usrval);
+
+	reg_val &= ~PSP_TIMER_ADD_VALUE_MASK;
+	reg_val |= FIELD_PREP(PSP_TIMER_ADD_VALUE_MASK, usrval);
+	return otx2_cpt_write_af_reg(&cptpf->afpf_mbox, pdev, CPT_AF_CTX_PSP_TIMER_CTL,
+				     reg_val, BLKADDR_CPT0);
+}
+
+#define PSP_TIMER_MAX_ADD_VALUE PSP_TIMER_ADD_VALUE_MASK
+
+static int cn20k_cpt_dl_validate_psp_timer_add_value(struct devlink *devlink, u32 id,
+						     union devlink_param_value val,
+						     struct netlink_ext_ack *extack)
+{
+	u64 usrval = 0;
+
+	if (kstrtoull(val.vstr, 0, &usrval))
+		return -EINVAL;
+
+	if (usrval > PSP_TIMER_MAX_ADD_VALUE)
+		return -EINVAL;
+
+	return 0;
+}
+
+#undef PSP_TIMER_MAX_ADD_VALUE
+
+static int cn20k_cpt_dl_check_pdb_config_egrp(struct devlink *devlink, u32 id,
+					      union devlink_param_value val,
+					      struct netlink_ext_ack *extack)
+{
+	/* valid engine group [0-7] */
+	if (val.vu8 > 0x7)
+		return -EINVAL;
+	return 0;
+}
+
+static int cn20k_cpt_dl_get_pdb_config_egrp(struct devlink *dl, u32 id,
+					    struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+
+	ctx->val.vu8 = cpt_dl->egrp;
+	return 0;
+}
+
+static int cn20k_cpt_dl_set_pdb_config_egrp(struct devlink *dl, u32 id,
+					    struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+
+	cpt_dl->egrp = ctx->val.vu8;
+	return 0;
+}
+
+#define DL_PDB_PKT_MAX_MASK 0x3F00
+#define DL_PDB_GRP_THR_MASK 0x00FF
+
+static int cn20k_cpt_dl_check_pdb_config_value(struct devlink *devlink, u32 id,
+					       union devlink_param_value val,
+					       struct netlink_ext_ack *extack)
+{
+	u8 pdb_pkt_max = FIELD_GET(DL_PDB_PKT_MAX_MASK, val.vu16);
+
+	if (pdb_pkt_max > 0x3F)
+		return -EINVAL;
+	return 0;
+}
+
+static int cn20k_cpt_dl_get_pdb_config_value(struct devlink *dl, u32 id,
+					     struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u8 pdb_pkt_max;
+	u8 pdb_grp_thr;
+	u64 reg_val;
+	int ret;
+
+	ret = otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev,
+				   CPT_AF_GRPX_THR(cpt_dl->egrp, pdev),
+				   &reg_val, BLKADDR_CPT0);
+	if (ret)
+		return ret;
+
+	pdb_pkt_max = FIELD_GET(PDB_PKT_MAX_MASK, reg_val);
+	pdb_grp_thr = FIELD_GET(PDB_GRP_THR_MASK, reg_val);
+
+	/* pdb_config_value 16 Bits:
+	 *  [7:0]   -> pdb_grp_thr (Max group-level data, KB, 0–255)
+	 *  [13:8]  -> pdb_pkt_max (Max per-packet data, KB, 0–63)
+	 *  [15:14] -> Reserved
+	 */
+	ctx->val.vu16 = FIELD_PREP(DL_PDB_GRP_THR_MASK, pdb_grp_thr);
+	ctx->val.vu16 |= FIELD_PREP(DL_PDB_PKT_MAX_MASK, pdb_pkt_max);
+
+	return 0;
+}
+
+static int cn20k_cpt_dl_set_pdb_config_value(struct devlink *dl, u32 id,
+					     struct devlink_param_gset_ctx *ctx)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	struct pci_dev *pdev = cptpf->pdev;
+	u8 pdb_pkt_max;
+	u8 pdb_grp_thr;
+	u64 reg_val;
+	int ret;
+
+	/* [0:7] bits */
+	pdb_grp_thr = FIELD_GET(DL_PDB_GRP_THR_MASK, ctx->val.vu16);
+	/* [13:8] bits */
+	pdb_pkt_max = FIELD_GET(DL_PDB_PKT_MAX_MASK, ctx->val.vu16);
+
+	ret = otx2_cpt_read_af_reg(&cptpf->afpf_mbox, pdev,
+				   CPT_AF_GRPX_THR(cpt_dl->egrp, pdev),
+				   &reg_val, BLKADDR_CPT0);
+	if (ret)
+		return ret;
+
+	reg_val &= ~PDB_PKT_MAX_MASK;
+	reg_val |= FIELD_PREP(PDB_PKT_MAX_MASK, (u64)pdb_pkt_max);
+	reg_val &= ~PDB_GRP_THR_MASK;
+	reg_val |= FIELD_PREP(PDB_GRP_THR_MASK, (u64)pdb_grp_thr);
+	return otx2_cpt_write_af_reg(&cptpf->afpf_mbox, pdev,
+				     CPT_AF_GRPX_THR(cpt_dl->egrp, pdev),
+				     reg_val, BLKADDR_CPT0);
+}
+
+static const struct devlink_param otx2_cpt_dl_params[] = {
+	DEVLINK_PARAM_DRIVER(OTX2_CPT_DEVLINK_PARAM_ID_EGRP_CREATE,
+			     "egrp_create", DEVLINK_PARAM_TYPE_STRING,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     otx2_cpt_dl_uc_info, otx2_cpt_dl_egrp_create,
+			     NULL),
+	DEVLINK_PARAM_DRIVER(OTX2_CPT_DEVLINK_PARAM_ID_EGRP_DELETE,
+			     "egrp_delete", DEVLINK_PARAM_TYPE_STRING,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     otx2_cpt_dl_uc_info, otx2_cpt_dl_egrp_delete,
+			     NULL),
+	DEVLINK_PARAM_DRIVER(OTX2_CPT_DEVLINK_PARAM_ID_MAX_RXC_ICB_CNT,
+			     "max_rxc_icb_cnt", DEVLINK_PARAM_TYPE_U16,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     otx2_cpt_dl_max_rxc_icb_cnt,
+			     otx2_cpt_dl_max_rxc_icb_cnt_set,
+			     NULL),
+	DEVLINK_PARAM_DRIVER(OTX2_CPT_DEVLINK_PARAM_ID_T106_MODE,
+			     "t106_mode", DEVLINK_PARAM_TYPE_U8,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     otx2_cpt_dl_t106_mode_get, otx2_cpt_dl_t106_mode_set,
+			     NULL),
+};
+
+/* CN20K specific extra devlink parameters */
+static const struct devlink_param cn20k_cpt_dl_params[] = {
+	DEVLINK_PARAM_DRIVER(CN20K_CPT_DEVLINK_PARAM_ID_RES_META_OFFSET,
+			     "res_meta_offset", DEVLINK_PARAM_TYPE_U8,
+			    BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			    cn20k_cpt_get_res_meta_offset,
+			    cn20k_cpt_set_res_meta_offset,
+			    NULL),
+	DEVLINK_PARAM_DRIVER(CN20K_CPT_DEVLINK_PARAM_ID_UC_COMPLETION_CODE_INDEX,
+			     "uc_completion_code_index", DEVLINK_PARAM_TYPE_U8,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     cn20k_cpt_dl_cq_get, cn20k_cpt_dl_cq_set,
+			     NULL),
+	DEVLINK_PARAM_DRIVER(CN20K_CPT_DEVLINK_PARAM_ID_COMPLETION_CODE_TO_CQ,
+			     "completion_code_to_cq", DEVLINK_PARAM_TYPE_U8,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     cn20k_cpt_dl_cq_get, cn20k_cpt_dl_cq_set,
+			     NULL),
+	DEVLINK_PARAM_DRIVER(CN20K_CPT_DEVLINK_PARAM_ID_PSP_TIMER_JITTER_CORRECT,
+			     "psp_timer_jitter_correct", DEVLINK_PARAM_TYPE_U8,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     cn20k_cpt_dl_get_psp_timer_jitter_correct,
+			     cn20k_cpt_dl_set_psp_timer_jitter_correct,
+			     cn20k_cpt_dl_validate_psp_timer_jitter_correct),
+	DEVLINK_PARAM_DRIVER(CN20K_CPT_DEVLINK_PARAM_ID_PSP_TIMER_ADD_VALUE,
+			     "psp_timer_add_value", DEVLINK_PARAM_TYPE_STRING,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     cn20k_cpt_dl_get_psp_timer_add_value,
+			     cn20k_cpt_dl_set_psp_timer_add_value,
+			     cn20k_cpt_dl_validate_psp_timer_add_value),
+	DEVLINK_PARAM_DRIVER(CN20K_CPT_DEVLINK_PARAM_ID_PDB_CONFIG_EGRP,
+			     "pdb_config_egrp", DEVLINK_PARAM_TYPE_U8,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     cn20k_cpt_dl_get_pdb_config_egrp,
+			     cn20k_cpt_dl_set_pdb_config_egrp,
+			     cn20k_cpt_dl_check_pdb_config_egrp),
+	DEVLINK_PARAM_DRIVER(CN20K_CPT_DEVLINK_PARAM_ID_PDB_CONFIG_VALUE,
+			     "pdb_config_value", DEVLINK_PARAM_TYPE_U16,
+			     BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     cn20k_cpt_dl_get_pdb_config_value,
+			     cn20k_cpt_dl_set_pdb_config_value,
+			     cn20k_cpt_dl_check_pdb_config_value),
+};
+
+static int otx2_cpt_dl_info_firmware_version_put(struct devlink_info_req *req,
+						 struct otx2_cpt_eng_grp_info grp[],
+						 const char *ver_name, int eng_type)
+{
+	struct otx2_cpt_engs_rsvd *eng;
+	int i;
+
+	for (i = 0; i < OTX2_CPT_MAX_ENGINE_GROUPS; i++) {
+		eng = find_engines_by_type(&grp[i], eng_type);
+		if (eng)
+			return devlink_info_version_running_put(req, ver_name,
+								eng->ucode->ver_str);
+	}
+
+	return 0;
+}
+
+static int otx2_cpt_devlink_info_get(struct devlink *dl,
+				     struct devlink_info_req *req,
+				     struct netlink_ext_ack *extack)
+{
+	struct otx2_cpt_devlink *cpt_dl = devlink_priv(dl);
+	struct otx2_cptpf_dev *cptpf = cpt_dl->cptpf;
+	int err;
+
+	err = otx2_cpt_dl_info_firmware_version_put(req, cptpf->eng_grps.grp,
+						    "fw.ae", OTX2_CPT_AE_TYPES);
+	if (err)
+		return err;
+
+	err = otx2_cpt_dl_info_firmware_version_put(req, cptpf->eng_grps.grp,
+						    "fw.se", OTX2_CPT_SE_TYPES);
+	if (err)
+		return err;
+
+	return otx2_cpt_dl_info_firmware_version_put(req, cptpf->eng_grps.grp,
+						    "fw.ie", OTX2_CPT_IE_TYPES);
+}
+
+static const struct devlink_ops otx2_cpt_devlink_ops = {
+	.info_get = otx2_cpt_devlink_info_get,
+};
+
+int otx2_cpt_register_dl(struct otx2_cptpf_dev *cptpf)
+{
+	struct device *dev = &cptpf->pdev->dev;
+	struct otx2_cpt_devlink *cpt_dl;
+	struct devlink *dl;
+	int ret;
+
+	dl = devlink_alloc(&otx2_cpt_devlink_ops,
+			   sizeof(struct otx2_cpt_devlink), dev);
+	if (!dl) {
+		dev_warn(dev, "devlink_alloc failed\n");
+		return -ENOMEM;
+	}
+
+	cpt_dl = devlink_priv(dl);
+	cpt_dl->dl = dl;
+	cpt_dl->cptpf = cptpf;
+	cptpf->dl = dl;
+	ret = devlink_params_register(dl, otx2_cpt_dl_params,
+				      ARRAY_SIZE(otx2_cpt_dl_params));
+	if (ret) {
+		dev_err(dev, "devlink params register failed with error %d",
+			ret);
+		devlink_free(dl);
+		return ret;
+	}
+
+	if (is_cn20k(cptpf->pdev)) {
+		unsigned int param_size = ARRAY_SIZE(otx2_cpt_dl_params);
+
+		ret = devlink_params_register(dl, cn20k_cpt_dl_params,
+					      ARRAY_SIZE(cn20k_cpt_dl_params));
+		if (ret) {
+			dev_err(dev, "devlink params register failed with error %d",
+				ret);
+			devlink_params_unregister(dl, otx2_cpt_dl_params,
+						  param_size);
+			devlink_free(dl);
+			return ret;
+		}
+	}
+	devlink_register(dl);
+
+	return 0;
+}
+
+void otx2_cpt_unregister_dl(struct otx2_cptpf_dev *cptpf)
+{
+	struct devlink *dl = cptpf->dl;
+
+	if (!dl)
+		return;
+
+	devlink_unregister(dl);
+	devlink_params_unregister(dl, otx2_cpt_dl_params,
+				  ARRAY_SIZE(otx2_cpt_dl_params));
+	if (is_cn20k(cptpf->pdev))
+		devlink_params_unregister(dl, cn20k_cpt_dl_params,
+					  ARRAY_SIZE(cn20k_cpt_dl_params));
+	devlink_free(dl);
+}

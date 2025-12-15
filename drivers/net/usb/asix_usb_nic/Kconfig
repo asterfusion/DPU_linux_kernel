@@ -1,0 +1,50 @@
+config USB_AX_USB_NIC
+    tristate "ASIX AX88179/178A/179A/772D USB NIC driver"
+    depends on USB_USBNET
+    help
+      Support for ASIX AX88xxx USB network devices.
+
+config USB_AX_USB_NIC_IOCTL_DEBUG
+    bool "Enable IOCTL debug"
+    default n
+
+config USB_AX_USB_NIC_AUTODETACH
+    bool "Enable autodetach"
+    default n
+
+config USB_AX_USB_NIC_MAC_PASS
+    bool "Enable MAC pass"
+    default n
+
+config USB_AX_USB_NIC_INT_AGGRESSIVE
+    bool "Enable INT aggressive mode"
+    default y
+
+config USB_AX_USB_NIC_INT_POLLING
+    bool "Enable INT polling mode"
+    default n
+
+config USB_AX_USB_NIC_AUTOSUSPEND
+    bool "Enable autosuspend"
+    default n
+
+config USB_AX_USB_NIC_TX_TASKLET
+    bool "Enable TX tasklet processing"
+    default n
+
+config USB_AX_USB_NIC_RX_TASKLET
+    bool "Enable RX tasklet processing"
+    default n
+
+config USB_AX_USB_NIC_QUEUE_PRIORITY
+    bool "Enable queue priority"
+    default n
+
+config USB_AX_USB_NIC_PTP
+    bool "Enable PTP function"
+    default n
+
+config USB_AX_USB_NIC_PTP_DEBUG
+    bool "Enable PTP debug"
+    depends on USB_AX_USB_NIC_PTP
+    default n
