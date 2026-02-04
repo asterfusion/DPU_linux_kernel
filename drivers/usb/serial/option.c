@@ -641,6 +641,7 @@ static void option_instat_callback(struct urb *urb);
 
 
 static const struct usb_device_id option_ids[] = {
+	{ USB_DEVICE(0x2C7C, 0x0801) },
 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_COLT) },
 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA) },
 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA_LIGHT) },
@@ -2399,6 +2400,7 @@ static struct usb_serial_driver option_1port_device = {
 #ifdef CONFIG_PM
 	.suspend           = usb_wwan_suspend,
 	.resume            = usb_wwan_resume,
+	.reset_resume      = usb_wwan_resume,
 #endif
 };
 
@@ -2441,7 +2443,27 @@ static int option_probe(struct usb_serial *serial,
 	 */
 	if (device_flags & NUMEP2 && iface_desc->bNumEndpoints != 2)
 		return -ENODEV;
+//Added by Quectel
 
+       if (serial->dev->descriptor.idVendor == cpu_to_le16(0x2C7C)) {
+               __u16 idProduct =
+                       le16_to_cpu(serial->dev->descriptor.idProduct);
+               struct usb_interface_descriptor *intf =
+                       &serial->interface->cur_altsetting->desc;
+               if (intf->bInterfaceClass != 0xFF ||
+                   intf->bInterfaceSubClass == 0x42) {
+                       //ECM, RNDIS, NCM, MBIM, ACM, UAC, ADB
+                       return -ENODEV;
+               }
+               if ((idProduct & 0xF000) == 0x0000) {
+                       //MDM interface 4 is QMI
+                       if (intf->bInterfaceNumber == 4 &&
+                           intf->bNumEndpoints == 3 &&
+                           intf->bInterfaceSubClass == 0xFF &&
+                           intf->bInterfaceProtocol == 0xFF)
+                               return -ENODEV;
+               }
+       }
 	/* Store the device flags so we can use them during attach. */
 	usb_set_serial_data(serial, (void *)device_flags);
 
