@@ -471,19 +471,19 @@ static void octeontx_edac_ea_msg(struct octeontx_ghes_record *rec, char msg[SIZE
 	u32 n = 0;
 	char pfx[64];
 
-	pr_err("Error records :\n");
+	//pr_err("Error records :\n");
 	snprintf(pfx, sizeof(pfx), "%s ", HW_ERR);
 
-	pr_err("%s event severity: %s\n", pfx,
-	       rec->error_severity < ARRAY_SIZE(severity_strs) ?
-	       severity_strs[rec->error_severity] : "unknown");
+	//pr_err("%s event severity: %s\n", pfx,
+	 //      rec->error_severity < ARRAY_SIZE(severity_strs) ?
+	  //     severity_strs[rec->error_severity] : "unknown");
 
-	pr_err("%s fru_text: %.20s\n", pfx, rec->msg);
+	//pr_err("%s fru_text: %.20s\n", pfx, rec->msg);
 
 	desc = &rec->core.desc;
 	info = &rec->core.info;
 
-	cper_print_proc_arm(pfx, desc);
+	//cper_print_proc_arm(pfx, desc);
 
 	n += scnprintf(msg + n, len - n, "%s ", rec->msg);
 	n += scnprintf(msg + n, len - n, "midr=0x%llx ", desc->midr);
@@ -600,10 +600,12 @@ loop:
 	/*Ensure that tail updated*/
 	wmb();
 
-	if (type == HW_EVENT_ERR_FATAL || type == HW_EVENT_ERR_UNCORRECTED)
-		edac_device_handle_ue(edac_dev, inst, 0, msg);
-	else
-		edac_device_handle_ce(edac_dev, inst, 0, msg);
+	if (strcmp(ghes->name, ea_of_match[0].name)) {
+		if (type == HW_EVENT_ERR_FATAL || type == HW_EVENT_ERR_UNCORRECTED)
+			edac_device_handle_ue(edac_dev, inst, 0, msg);
+		else
+			edac_device_handle_ce(edac_dev, inst, 0, msg);
+	}
 
 	if (head != tail)
 		goto loop;
