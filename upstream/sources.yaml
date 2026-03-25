@@ -1,0 +1,10 @@
+kernel:
+  repo: "git://git.yoctoproject.org/linux-yocto"
+  branch: "v6.12/standard/preempt-rt/octeon"
+  protocol: "git"
+  fetch:
+    depth: 1
+    single_branch: true
+
+meta:
+  description: "Yocto linux-yocto kernel"

@@ -1,0 +1,13 @@
+base:
+  repo: "git://git.yoctoproject.org/linux-yocto"
+  branch: "v6.12/standard/preempt-rt/octeon"
+  commit: "454911f74994c862ecff86cc48f8566217b8f741"
+
+build:
+  type: "yocto"
+  kernel_version: "6.12-rt"
+  arch: "arm64"
+
+generated:
+  by: "lilinwei"
+  date: "2026-03-25T11:30:00+08:00"
