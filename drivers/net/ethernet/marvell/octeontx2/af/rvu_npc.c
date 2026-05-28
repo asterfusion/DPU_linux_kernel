@@ -712,7 +712,8 @@ void rvu_npc_install_ucast_entry(struct rvu *rvu, u16 pcifunc,
 		*(u64 *)&action = npc_get_mcam_action(rvu, mcam,
 						      blkaddr, index);
 	} else {
-		action.op = NIX_RX_ACTIONOP_UCAST;
+		// action.op = NIX_RX_ACTIONOP_UCAST;
+		action.op = NIX_RX_ACTIONOP_RSS; //set default to rss for sonic
 		action.pf_func = pcifunc;
 	}
 
