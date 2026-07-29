@@ -302,6 +302,8 @@ struct rvu_pfvf {
 
 	struct rvu_npc_mcam_rule *def_ucast_rule;
 
+	bool                    rx_vlan_strip; /* Strip VLAN tag on default RX rules */
+
 	bool	cgx_in_use; /* this PF/VF using CGX? */
 	int	cgx_users;  /* number of cgx users - used only by PFs */
 
@@ -1181,6 +1183,8 @@ u64 rvu_cgx_get_dmacflt_dropped_pktcnt(void *cgxd, int lmac_id);
 u32 rvu_cgx_get_lmac_fifolen(struct rvu *rvu, int cgx, int lmac);
 int npc_get_nixlf_mcam_index(struct npc_mcam *mcam, u16 pcifunc, int nixlf,
 			     int type);
+void rvu_npc_update_bcast_vlan_strip(struct rvu *rvu, u16 pcifunc, int nixlf,
+                             bool enable);
 bool is_mcam_entry_enabled(struct rvu *rvu, struct npc_mcam *mcam, int blkaddr,
 			   int index);
 int rvu_npc_init(struct rvu *rvu);

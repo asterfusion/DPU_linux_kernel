@@ -3197,9 +3197,10 @@ int rvu_mbox_handler_nix_txschq_cfg(struct rvu *rvu,
 	return 0;
 }
 
-static int nix_rx_vtag_cfg(struct rvu *rvu, int nixlf, int blkaddr,
+static int nix_rx_vtag_cfg(struct rvu *rvu, u16 pcifunc, int nixlf, int blkaddr,
 			   struct nix_vtag_config *req)
 {
+	struct rvu_pfvf *pfvf = rvu_get_pfvf(rvu, pcifunc);
 	u64 regval = req->vtag_size;
 
 	if (req->rx.vtag_type > NIX_AF_LFX_RX_VTAG_TYPE7 ||
@@ -3217,6 +3218,23 @@ static int nix_rx_vtag_cfg(struct rvu *rvu, int nixlf, int blkaddr,
 
 	rvu_write64(rvu, blkaddr,
 		    NIX_AF_LFX_RX_VTAG_TYPEX(nixlf, req->rx.vtag_type), regval);
+
+	pfvf->rx_vlan_strip = req->rx.strip_vtag;
+
+        if (is_vf(pcifunc)) {
+                struct rvu_pfvf *pf_pfvf;
+ 
+                pf_pfvf = rvu_get_pfvf(rvu, pcifunc & ~RVU_PFVF_FUNC_MASK);
+                pf_pfvf->rx_vlan_strip = req->rx.strip_vtag;
+        }
+
+        /* The MCAM vtag strip action removes 4 bytes unconditionally,
+         * so it must not be attached to the AF default rules which also
+         * serve untagged traffic. Use a dedicated twin entry matching
+         * tagged broadcast packets instead.
+         */
+        rvu_npc_update_bcast_vlan_strip(rvu, pcifunc, nixlf, req->rx.strip_vtag);
+
 	return 0;
 }
 
@@ -3394,7 +3412,7 @@ int rvu_mbox_handler_nix_vtag_cfg(struct rvu *rvu,
 
 	if (req->cfg_type) {
 		/* rx vtag configuration */
-		err = nix_rx_vtag_cfg(rvu, nixlf, blkaddr, req);
+		err = nix_rx_vtag_cfg(rvu, pcifunc, nixlf, blkaddr, req);
 		if (err)
 			return NIX_AF_ERR_PARAM;
 	} else {

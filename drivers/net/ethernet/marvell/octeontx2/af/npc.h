@@ -501,6 +501,7 @@ struct nix_tx_action {
 #define NIXLF_BCAST_ENTRY	1
 #define NIXLF_ALLMULTI_ENTRY	2
 #define NIXLF_PROMISC_ENTRY	3
+#define NIXLF_BCAST_VLAN_ENTRY  4
 
 struct npc_coalesced_kpu_prfl {
 #define NPC_SIGN	0x00666f727063706e

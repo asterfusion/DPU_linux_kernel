@@ -17,7 +17,7 @@
 #include "npc_profile.h"
 #include "rvu_npc_hash.h"
 
-#define RSVD_MCAM_ENTRIES_PER_PF	3 /* Broadcast, Promisc and AllMulticast */
+#define RSVD_MCAM_ENTRIES_PER_PF        4 /* Bcast strip, Broadcast, AllMulticast and Promisc */
 #define RSVD_MCAM_ENTRIES_PER_NIXLF	1 /* Ucast for LFs */
 
 #define NPC_PARSE_RESULT_DMAC_OFFSET	8
@@ -157,13 +157,16 @@ int npc_get_nixlf_mcam_index(struct npc_mcam *mcam,
 		index = mcam->pf_offset + (pf * RSVD_MCAM_ENTRIES_PER_PF);
 		/* Broadcast address matching entry should be first so
 		 * that the packet can be replicated to all VFs.
+		 * The VLAN strip twin entry goes right before it.
 		 */
-		if (type == NIXLF_BCAST_ENTRY)
+		if (type == NIXLF_BCAST_VLAN_ENTRY)
 			return index;
-		else if (type == NIXLF_ALLMULTI_ENTRY)
+		else if (type == NIXLF_BCAST_ENTRY)
 			return index + 1;
-		else if (type == NIXLF_PROMISC_ENTRY)
+		else if (type == NIXLF_ALLMULTI_ENTRY)
 			return index + 2;
+		else if (type == NIXLF_PROMISC_ENTRY)
+			return index + 3;
 	}
 
 	return npc_get_ucast_mcam_index(mcam, pcifunc, nixlf);
@@ -822,13 +825,89 @@ void rvu_npc_install_bcast_match_entry(struct rvu *rvu, u16 pcifunc,
 	req.hdr.pcifunc = 0; /* AF is requester */
 	req.vf = pcifunc;
 
+        rvu_mbox_handler_npc_install_flow(rvu, &req, &rsp);
+
+        if (pfvf->rx_vlan_strip)
+                rvu_npc_update_bcast_vlan_strip(rvu, pcifunc, nixlf, true);
+}
+
+/* Install/remove the broadcast VLAN strip twin entry. The twin matches
+ * tagged (0x8100) broadcast packets only and sits right before the plain
+ * bcast entry, so untagged broadcast packets are left intact while tagged
+ * ones get their outer VLAN tag stripped on the way to the PF/VFs.
+ */
+void rvu_npc_update_bcast_vlan_strip(struct rvu *rvu, u16 pcifunc, int nixlf,
+                                    bool enable)
+{
+       struct npc_install_flow_req req = { 0 };
+       struct npc_install_flow_rsp rsp = { 0 };
+       struct npc_mcam *mcam = &rvu->hw->mcam;
+       struct rvu_hwinfo *hw = rvu->hw;
+       struct rvu_pfvf *pfvf, *req_pfvf;
+       int blkaddr, index;
+       u64 chan;
+
+       blkaddr = rvu_get_blkaddr(rvu, BLKTYPE_NPC, 0);
+       if (blkaddr < 0)
+               return;
+
+       /* The twin must match on the requesting LF's channel, same as
+        * the plain bcast entry installed for that LF.
+        */
+       req_pfvf = rvu_get_pfvf(rvu, pcifunc);
+       chan = req_pfvf->rx_chan_base;
+
+       /* The entry belongs to the PF and is shared by all its VFs */
+       pcifunc = pcifunc & ~RVU_PFVF_FUNC_MASK;
+
+       /* No reserved entries for PF0 */
+       if (!rvu_get_pf(pcifunc))
+               return;
+
+       pfvf = rvu_get_pfvf(rvu, pcifunc);
+       index = npc_get_nixlf_mcam_index(mcam, pcifunc, nixlf,
+                                        NIXLF_BCAST_VLAN_ENTRY);
+
+       if (!enable) {
+               npc_enable_mcam_entry(rvu, mcam, blkaddr, index, false);
+               return;
+       }
+
+       if (!hw->cap.nix_rx_multicast) {
+               req.op = NIX_RX_ACTIONOP_UCAST;
+       } else {
+               req.op = NIX_RX_ACTIONOP_MCAST;
+               req.index = pfvf->bcast_mce_idx;
+       }
+
+       eth_broadcast_addr((u8 *)&req.packet.dmac);
+       eth_broadcast_addr((u8 *)&req.mask.dmac);
+       req.packet.vlan_etype = htons(ETH_P_8021Q);
+       req.mask.vlan_etype = htons(0xFFFF);
+       req.features = BIT_ULL(NPC_DMAC) | BIT_ULL(NPC_VLAN_ETYPE_CTAG);
+       req.channel = chan;
+       req.chan_mask = 0xFFFU;
+       req.intf = pfvf->nix_rx_intf;
+       req.entry = index;
+       req.hdr.pcifunc = 0; /* AF is requester */
+       req.vf = pcifunc;
+       req.vtag0_valid = 1;
+       req.vtag0_type = NIX_AF_LFX_RX_VTAG_TYPE0;
+
 	rvu_mbox_handler_npc_install_flow(rvu, &req, &rsp);
+
+	/* The install handler leaves the entry disabled when the PF has no
+	 * attached/initialized NIXLF of its own, but this entry serves the
+	 * VFs' broadcast traffic, so force it on.
+	 */
+	npc_enable_mcam_entry(rvu, mcam, blkaddr, index, true);
 }
 
 void rvu_npc_enable_bcast_entry(struct rvu *rvu, u16 pcifunc, int nixlf,
 				bool enable)
 {
 	struct npc_mcam *mcam = &rvu->hw->mcam;
+	struct rvu_pfvf *pfvf;
 	int blkaddr, index;
 
 	blkaddr = rvu_get_blkaddr(rvu, BLKTYPE_NPC, 0);
@@ -841,6 +920,13 @@ void rvu_npc_enable_bcast_entry(struct rvu *rvu, u16 pcifunc, int nixlf,
 	index = npc_get_nixlf_mcam_index(mcam, pcifunc, nixlf,
 					 NIXLF_BCAST_ENTRY);
 	npc_enable_mcam_entry(rvu, mcam, blkaddr, index, enable);
+
+        pfvf = rvu_get_pfvf(rvu, pcifunc);
+        if (pfvf->rx_vlan_strip) {
+                index = npc_get_nixlf_mcam_index(mcam, pcifunc, nixlf,
+                                                 NIXLF_BCAST_VLAN_ENTRY);
+                npc_enable_mcam_entry(rvu, mcam, blkaddr, index, enable);
+        }
 }
 
 void rvu_npc_install_allmulti_entry(struct rvu *rvu, u16 pcifunc, int nixlf,
