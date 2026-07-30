@@ -3230,9 +3230,12 @@ static int nix_rx_vtag_cfg(struct rvu *rvu, u16 pcifunc, int nixlf, int blkaddr,
 
         /* The MCAM vtag strip action removes 4 bytes unconditionally,
          * so it must not be attached to the AF default rules which also
-         * serve untagged traffic. Use a dedicated twin entry matching
-         * tagged broadcast packets instead.
+         * serve untagged traffic. Use dedicated twin entries matching
+         * tagged packets instead.
          */
+        rvu_npc_update_ucast_vlan_strip(rvu, pcifunc, nixlf,
+                                        pfvf->rx_chan_base, pfvf->mac_addr,
+                                        req->rx.strip_vtag);
         rvu_npc_update_bcast_vlan_strip(rvu, pcifunc, nixlf, req->rx.strip_vtag);
 
 	return 0;

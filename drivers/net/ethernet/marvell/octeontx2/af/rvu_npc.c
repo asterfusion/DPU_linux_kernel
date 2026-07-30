@@ -18,7 +18,7 @@
 #include "rvu_npc_hash.h"
 
 #define RSVD_MCAM_ENTRIES_PER_PF        4 /* Bcast strip, Broadcast, AllMulticast and Promisc */
-#define RSVD_MCAM_ENTRIES_PER_NIXLF	1 /* Ucast for LFs */
+#define RSVD_MCAM_ENTRIES_PER_NIXLF	2 /* Ucast and ucast VLAN strip twin for LFs */
 
 #define NPC_PARSE_RESULT_DMAC_OFFSET	8
 #define NPC_HW_TSTAMP_OFFSET		8ULL
@@ -155,9 +155,9 @@ int npc_get_nixlf_mcam_index(struct npc_mcam *mcam,
 		/* Reserved entries exclude PF0 */
 		pf--;
 		index = mcam->pf_offset + (pf * RSVD_MCAM_ENTRIES_PER_PF);
-		/* Broadcast address matching entry should be first so
-		 * that the packet can be replicated to all VFs.
-		 * The VLAN strip twin entry goes right before it.
+		/* NPC matches entries with lower index first. The VLAN
+		 * strip twin goes right before the plain bcast entry so
+		 * that only tagged broadcast packets hit the twin.
 		 */
 		if (type == NIXLF_BCAST_VLAN_ENTRY)
 			return index;
@@ -169,7 +169,10 @@ int npc_get_nixlf_mcam_index(struct npc_mcam *mcam,
 			return index + 3;
 	}
 
-	return npc_get_ucast_mcam_index(mcam, pcifunc, nixlf);
+	index = npc_get_ucast_mcam_index(mcam, pcifunc, nixlf);
+	if (type == NIXLF_UCAST_ENTRY)
+		return index + 1;
+	return index;
 }
 
 int npc_get_bank(struct npc_mcam *mcam, int index)
@@ -667,6 +670,10 @@ void rvu_npc_install_ucast_entry(struct rvu *rvu, u16 pcifunc,
 	req.flow_key_alg = action.flow_key_alg;
 
 	rvu_mbox_handler_npc_install_flow(rvu, &req, &rsp);
+
+	if (pfvf->rx_vlan_strip)
+		rvu_npc_update_ucast_vlan_strip(rvu, pcifunc, nixlf, chan,
+						mac_addr, true);
 }
 
 void rvu_npc_install_promisc_entry(struct rvu *rvu, u16 pcifunc,
@@ -899,6 +906,78 @@ void rvu_npc_update_bcast_vlan_strip(struct rvu *rvu, u16 pcifunc, int nixlf,
 	/* The install handler leaves the entry disabled when the PF has no
 	 * attached/initialized NIXLF of its own, but this entry serves the
 	 * VFs' broadcast traffic, so force it on.
+	 */
+	npc_enable_mcam_entry(rvu, mcam, blkaddr, index, true);
+}
+
+/* Install/remove the ucast VLAN strip twin entry for a NIX LF. The twin
+ * matches the same DMAC as the plain ucast entry plus the CTAG etype,
+ * and sits right after it (NPC matches higher index first), so only
+ * tagged unicast packets get their outer VLAN tag stripped.
+ */
+void rvu_npc_update_ucast_vlan_strip(struct rvu *rvu, u16 pcifunc, int nixlf,
+				     u64 chan, u8 *mac_addr, bool enable)
+{
+	struct npc_install_flow_req req = { 0 };
+	struct npc_install_flow_rsp rsp = { 0 };
+	struct npc_mcam *mcam = &rvu->hw->mcam;
+	struct rvu_pfvf *pfvf = rvu_get_pfvf(rvu, pcifunc);
+	struct nix_rx_action action = { 0 };
+	int blkaddr, index, ucast_idx;
+
+	/* Same coverage as the plain ucast entry */
+	if (is_lbk_vf(rvu, pcifunc) || is_sdp_vf(rvu, pcifunc))
+		return;
+
+	blkaddr = rvu_get_blkaddr(rvu, BLKTYPE_NPC, 0);
+	if (blkaddr < 0)
+		return;
+
+	if (!npc_is_feature_supported(rvu, BIT_ULL(NPC_DMAC),
+				      pfvf->nix_rx_intf))
+		return;
+
+	index = npc_get_nixlf_mcam_index(mcam, pcifunc, nixlf,
+					 NIXLF_UCAST_VLAN_ENTRY);
+
+	if (!enable) {
+		npc_enable_mcam_entry(rvu, mcam, blkaddr, index, false);
+		return;
+	}
+
+	/* Mirror the delivery action of the plain ucast entry */
+	ucast_idx = npc_get_nixlf_mcam_index(mcam, pcifunc, nixlf,
+					     NIXLF_UCAST_ENTRY);
+	if (is_mcam_entry_enabled(rvu, mcam, blkaddr, ucast_idx)) {
+		*(u64 *)&action = npc_get_mcam_action(rvu, mcam,
+						      blkaddr, ucast_idx);
+	} else {
+		action.op = NIX_RX_ACTIONOP_RSS;
+		action.pf_func = pcifunc;
+	}
+
+	ether_addr_copy(req.packet.dmac, mac_addr);
+	eth_broadcast_addr((u8 *)&req.mask.dmac);
+	req.packet.vlan_etype = htons(ETH_P_8021Q);
+	req.mask.vlan_etype = htons(0xFFFF);
+	req.features = BIT_ULL(NPC_DMAC) | BIT_ULL(NPC_VLAN_ETYPE_CTAG);
+	req.channel = chan;
+	req.chan_mask = rvu_get_cpt_chan_mask(rvu);
+	req.intf = pfvf->nix_rx_intf;
+	req.entry = index;
+	req.op = action.op;
+	req.hdr.pcifunc = 0; /* AF is requester */
+	req.vf = action.pf_func;
+	req.index = action.index;
+	req.match_id = action.match_id;
+	req.flow_key_alg = action.flow_key_alg;
+	req.vtag0_valid = 1;
+	req.vtag0_type = NIX_AF_LFX_RX_VTAG_TYPE0;
+
+	rvu_mbox_handler_npc_install_flow(rvu, &req, &rsp);
+
+	/* The install handler may leave the entry disabled when the owning
+	 * PF/VF has no initialized NIXLF, force it on like the plain entry.
 	 */
 	npc_enable_mcam_entry(rvu, mcam, blkaddr, index, true);
 }
@@ -1216,9 +1295,12 @@ static void npc_enadis_default_entries(struct rvu *rvu, u16 pcifunc,
 	if (blkaddr < 0)
 		return;
 
-	/* Ucast MCAM match entry of this PF/VF */
+	/* Ucast MCAM match entry of this PF/VF and its VLAN strip twin */
 	index = npc_get_nixlf_mcam_index(mcam, pcifunc,
 					 nixlf, NIXLF_UCAST_ENTRY);
+	npc_enable_mcam_entry(rvu, mcam, blkaddr, index, enable);
+	index = npc_get_nixlf_mcam_index(mcam, pcifunc,
+					 nixlf, NIXLF_UCAST_VLAN_ENTRY);
 	npc_enable_mcam_entry(rvu, mcam, blkaddr, index, enable);
 
 	/* Nothing to do for VFs, on platforms where pkt replication

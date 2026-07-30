@@ -1185,6 +1185,8 @@ int npc_get_nixlf_mcam_index(struct npc_mcam *mcam, u16 pcifunc, int nixlf,
 			     int type);
 void rvu_npc_update_bcast_vlan_strip(struct rvu *rvu, u16 pcifunc, int nixlf,
                              bool enable);
+void rvu_npc_update_ucast_vlan_strip(struct rvu *rvu, u16 pcifunc, int nixlf,
+				     u64 chan, u8 *mac_addr, bool enable);
 bool is_mcam_entry_enabled(struct rvu *rvu, struct npc_mcam *mcam, int blkaddr,
 			   int index);
 int rvu_npc_init(struct rvu *rvu);
