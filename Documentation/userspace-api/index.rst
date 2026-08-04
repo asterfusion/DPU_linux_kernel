@@ -20,6 +20,7 @@ place where this information is gathered.
    seccomp_filter
    landlock
    unshare
+   cpld-gpio-update
    spec_ctrl
    accelerators/ocxl
    ebpf/index
