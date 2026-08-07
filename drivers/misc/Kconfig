@@ -5,6 +5,18 @@
 
 menu "Misc devices"
 
+config CPLD_GPIO_UPDATE
+	tristate "GPIO waveform interface for CPLD updates"
+	depends on GPIOLIB
+	depends on OF
+	help
+	  Enable a userspace interface for CPLD update software which needs
+	  direct, timed control of two open-drain GPIO lines. Each firmware
+	  node creates an exclusive /dev/cpld-updateN device. The programming
+	  protocol and firmware parsing remain in userspace.
+
+	  This driver does not register or modify an I2C adapter.
+
 config SENSORS_LIS3LV02D
 	tristate
 	depends on INPUT
