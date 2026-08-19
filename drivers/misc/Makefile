@@ -4,6 +4,7 @@
 #
 
 obj-$(CONFIG_CPLD_GPIO_UPDATE)	+= cpld-gpio-update.o
+cpld-gpio-update-y		:= cpld_update.o
 
 obj-$(CONFIG_IBM_ASM)		+= ibmasm/
 obj-$(CONFIG_IBMVMC)		+= ibmvmc.o
