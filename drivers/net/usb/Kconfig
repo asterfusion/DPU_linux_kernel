@@ -11,7 +11,6 @@ menuconfig USB_NET_DRIVERS
 	depends on USB && NET
 
 if USB_NET_DRIVERS
-source "drivers/net/usb/asix_usb_nic/Kconfig"
 
 config USB_CATC
 	tristate "USB CATC NetMate-based Ethernet device support"
@@ -198,22 +197,26 @@ config USB_NET_AX8817X
 	  what other networking devices you have in use.
 
 config USB_NET_AX88179_178A
-	tristate "ASIX AX88179/178A USB 3.0/2.0 to Gigabit Ethernet"
+	tristate "ASIX AX88xxx USB Ethernet adapters"
 	depends on USB_USBNET
 	select CRC32
 	select PHYLIB
 	default y
 	help
-	  This option adds support for ASIX AX88179 based USB 3.0/2.0
-	  to Gigabit Ethernet adapters.
+	  This option adds support for ASIX USB 2.0/3.x Ethernet adapters.
 
 	  This driver should work with at least the following devices:
 	    * ASIX AX88179
 	    * ASIX AX88178A
+	    * ASIX AX88179A/AX88179B
+	    * ASIX AX88772D/AX88772E
+	    * ASIX AX88279/AX88279A
 	    * Sitcomm LN-032
 
 	  This driver creates an interface named "ethX", where X depends on
 	  what other networking devices you have in use.
+
+source "drivers/net/usb/asix_usb_nic/Kconfig"
 
 config USB_NET_CDCETHER
 	tristate "CDC Ethernet support (smart devices such as cable modems)"

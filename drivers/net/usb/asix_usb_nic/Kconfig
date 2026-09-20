@@ -1,50 +1,90 @@
-config USB_AX_USB_NIC
-    tristate "ASIX AX88179/178A/179A/772D USB NIC driver"
-    depends on USB_USBNET
-    help
-      Support for ASIX AX88xxx USB network devices.
+if USB_NET_AX88179_178A
 
 config USB_AX_USB_NIC_IOCTL_DEBUG
-    bool "Enable IOCTL debug"
-    default n
+	bool "Enable ASIX private IOCTL debug"
+	default n
 
 config USB_AX_USB_NIC_AUTODETACH
-    bool "Enable autodetach"
-    default n
+	bool "Enable ASIX Ethernet PHY auto-detach"
+	default n
 
 config USB_AX_USB_NIC_MAC_PASS
-    bool "Enable MAC pass"
-    default n
+	bool "Enable ASIX MAC address pass-through"
+	default n
 
 config USB_AX_USB_NIC_INT_AGGRESSIVE
-    bool "Enable INT aggressive mode"
-    default y
+	bool "Enable aggressive interrupt handling"
+	default y
 
 config USB_AX_USB_NIC_INT_POLLING
-    bool "Enable INT polling mode"
-    default n
+	bool "Enable interrupt polling fallback"
+	default n
 
 config USB_AX_USB_NIC_AUTOSUSPEND
-    bool "Enable autosuspend"
-    default n
+	bool "Enable USB runtime autosuspend"
+	default n
 
 config USB_AX_USB_NIC_TX_TASKLET
-    bool "Enable TX tasklet processing"
-    default n
+	bool "Use tasklets for transmit processing"
+	default n
 
 config USB_AX_USB_NIC_RX_TASKLET
-    bool "Enable RX tasklet processing"
-    default n
+	bool "Use tasklets for receive processing"
+	default n
 
 config USB_AX_USB_NIC_QUEUE_PRIORITY
-    bool "Enable queue priority"
-    default n
+	bool "Enable transmit queue priority"
+	default n
+
+config USB_AX_USB_NIC_LPM
+	bool "Enable USB link power management"
+	default y
+
+config USB_AX_USB_NIC_SUSPEND_LP
+	bool "Enable low-power suspend sequence"
+	default y
+
+config USB_AX_USB_NIC_QAV
+	bool "Enable IEEE 802.1Qav support"
+	depends on USB_AX_USB_NIC_QUEUE_PRIORITY
+	default n
+
+config USB_AX_USB_NIC_RX_PREEMPT
+	bool "Enable receive frame preemption"
+	depends on USB_AX_USB_NIC_QUEUE_PRIORITY
+	default n
+
+config USB_AX_USB_NIC_COE
+	bool "Enable configurable checksum offload"
+	default n
+
+config USB_AX_USB_NIC_LSO
+	bool "Enable large send offload"
+	default y
 
 config USB_AX_USB_NIC_PTP
-    bool "Enable PTP function"
-    default n
+	bool "Enable Precision Time Protocol support"
+	depends on PTP_1588_CLOCK
+	default n
 
 config USB_AX_USB_NIC_PTP_DEBUG
-    bool "Enable PTP debug"
-    depends on USB_AX_USB_NIC_PTP
-    default n
+	bool "Enable PTP debug logging"
+	depends on USB_AX_USB_NIC_PTP
+	default n
+
+config USB_AX_USB_NIC_PTP_125M_CLK
+	bool "Enable PTP 125 MHz clock output"
+	depends on USB_AX_USB_NIC_PTP
+	default n
+
+config USB_AX_USB_NIC_PTP_PPS
+	bool "Enable PTP pulse-per-second output"
+	depends on USB_AX_USB_NIC_PTP
+	default n
+
+config USB_AX_USB_NIC_PTP_NORMAL_PKT
+	bool "Timestamp normal packets in the PTP path"
+	depends on USB_AX_USB_NIC_PTP
+	default n
+
+endif

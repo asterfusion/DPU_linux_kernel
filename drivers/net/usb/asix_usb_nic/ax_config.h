@@ -1,0 +1,67 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef __AX_CONFIG_H__
+#define __AX_CONFIG_H__
+
+/* Map in-tree Kconfig symbols to the feature macros used by ASIX v4.2.100. */
+#ifdef CONFIG_USB_AX_USB_NIC_IOCTL_DEBUG
+#define ENABLE_IOCTL_DEBUG
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_AUTODETACH
+#define ENABLE_AUTODETACH_FUNC
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_MAC_PASS
+#define ENABLE_MAC_PASS
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_INT_AGGRESSIVE
+#define ENABLE_INT_AGGRESSIVE
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_INT_POLLING
+#define ENABLE_INT_POLLING
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_AUTOSUSPEND
+#define ENABLE_AUTOSUSPEND
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_TX_TASKLET
+#define ENABLE_TX_TASKLET
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_RX_TASKLET
+#define ENABLE_RX_TASKLET
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_QUEUE_PRIORITY
+#define ENABLE_QUEUE_PRIORITY
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_LPM
+#define ENABLE_LPM
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_SUSPEND_LP
+#define ENABLE_SUSPEND_LP
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_QAV
+#define ENABLE_QAV
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_RX_PREEMPT
+#define ENABLE_RX_PREEMPT
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_COE
+#define ENABLE_COE
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_LSO
+#define ENABLE_LSO
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_PTP
+#define ENABLE_PTP_FUNC
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_PTP_DEBUG
+#define ENABLE_PTP_DEBUG
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_PTP_125M_CLK
+#define ENABLE_PTP_125M_CLK
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_PTP_PPS
+#define ENABLE_PTP_PPS
+#endif
+#ifdef CONFIG_USB_AX_USB_NIC_PTP_NORMAL_PKT
+#define ENABLE_PTP_NORMAL_PKT
+#endif
+
+#endif /* __AX_CONFIG_H__ */
