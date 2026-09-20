@@ -95,15 +95,26 @@ static const char hcd_name[] = "xhci_hcd";
 
 static struct hc_driver __read_mostly xhci_pci_hc_driver;
 
+#define XHCI_PCI_MAX_FORCE_USB2_PORTS	32
+
+static char *force_usb2_ports[XHCI_PCI_MAX_FORCE_USB2_PORTS];
+static unsigned int force_usb2_ports_count;
+module_param_array(force_usb2_ports, charp, &force_usb2_ports_count, 0444);
+MODULE_PARM_DESC(force_usb2_ports,
+		 "SuperSpeed ports forced to USB 2.0, as <domain:bus:slot.func/port>[,...]");
+
 static int xhci_pci_setup(struct usb_hcd *hcd);
 static int xhci_pci_run(struct usb_hcd *hcd);
 static int xhci_pci_update_hub_device(struct usb_hcd *hcd, struct usb_device *hdev,
 				      struct usb_tt *tt, gfp_t mem_flags);
+static int xhci_pci_hub_control(struct usb_hcd *hcd, u16 type_req, u16 value,
+				u16 index, char *buf, u16 length);
 
 static const struct xhci_driver_overrides xhci_pci_overrides __initconst = {
 	.reset = xhci_pci_setup,
 	.start = xhci_pci_run,
 	.update_hub_device = xhci_pci_update_hub_device,
+	.hub_control = xhci_pci_hub_control,
 };
 
 static void xhci_msix_sync_irqs(struct xhci_hcd *xhci)
@@ -267,8 +278,173 @@ static int xhci_try_enable_msi(struct usb_hcd *hcd)
 	return 0;
 }
 
+static int xhci_pci_parse_force_usb2_port(const char *spec, unsigned int *domain,
+					  unsigned int *bus,
+					  unsigned int *slot,
+					  unsigned int *func,
+					  unsigned int *portnum)
+{
+	char trailing;
+
+	if (sscanf(spec, "%x:%x:%x.%x/%u%c", domain, bus, slot, func,
+		   portnum, &trailing) != 5 || *domain > 0xffff || *bus > 0xff ||
+		   *slot > 0x1f || *func > 7 || !*portnum)
+		return -EINVAL;
+
+	return 0;
+}
+
+static void __init xhci_pci_validate_force_usb2_specs(void)
+{
+	unsigned int domain, bus, slot, func, portnum;
+	struct pci_dev *pdev;
+	unsigned int i;
+
+	for (i = 0; i < force_usb2_ports_count; i++) {
+		if (xhci_pci_parse_force_usb2_port(force_usb2_ports[i], &domain,
+						   &bus, &slot, &func,
+						   &portnum)) {
+			pr_warn("xhci-pci: force_usb2_ports: ignoring invalid entry '%s'\n",
+				force_usb2_ports[i]);
+			continue;
+		}
+
+		pdev = pci_get_domain_bus_and_slot(domain, bus,
+						   PCI_DEVFN(slot, func));
+		if (!pdev) {
+			pr_warn("xhci-pci: force_usb2_ports: PCI device for '%s' was not found\n",
+				force_usb2_ports[i]);
+			continue;
+		}
+
+		if (pdev->class != PCI_CLASS_SERIAL_USB_XHCI)
+			pr_warn("xhci-pci: force_usb2_ports: PCI device %s is not an xHCI controller\n",
+				pci_name(pdev));
+		pci_dev_put(pdev);
+	}
+}
+
+static bool xhci_pci_force_usb2_port_selected(struct xhci_hcd *xhci,
+					       unsigned int portnum)
+{
+	struct pci_dev *pdev = to_pci_dev(xhci_to_hcd(xhci)->self.controller);
+	unsigned int domain, bus, slot, func, selected_port;
+	unsigned int i;
+
+	for (i = 0; i < force_usb2_ports_count; i++) {
+		if (xhci_pci_parse_force_usb2_port(force_usb2_ports[i], &domain,
+						   &bus, &slot, &func,
+						   &selected_port))
+			continue;
+
+		if (domain == pci_domain_nr(pdev->bus) &&
+		    bus == pdev->bus->number && slot == PCI_SLOT(pdev->devfn) &&
+		    func == PCI_FUNC(pdev->devfn) && selected_port == portnum)
+			return true;
+	}
+
+	return false;
+}
+
+static void xhci_pci_validate_force_usb2_ports(struct xhci_hcd *xhci)
+{
+	struct pci_dev *pdev = to_pci_dev(xhci_to_hcd(xhci)->self.controller);
+	unsigned int domain, bus, slot, func, portnum;
+	unsigned int i;
+
+	for (i = 0; i < force_usb2_ports_count; i++) {
+		if (xhci_pci_parse_force_usb2_port(force_usb2_ports[i], &domain,
+						   &bus, &slot, &func,
+						   &portnum))
+			continue;
+
+		if (domain != pci_domain_nr(pdev->bus) || bus != pdev->bus->number ||
+		    slot != PCI_SLOT(pdev->devfn) || func != PCI_FUNC(pdev->devfn))
+			continue;
+
+		if (portnum > xhci->usb3_rhub.num_ports)
+			xhci_warn(xhci,
+				  "force_usb2_ports: %s selects port %u, but %s has only %u SuperSpeed ports\n",
+				  force_usb2_ports[i], portnum, pci_name(pdev),
+				  xhci->usb3_rhub.num_ports);
+	}
+}
+
+static bool xhci_pci_disable_usb3_port(struct xhci_hcd *xhci,
+				       struct xhci_port *port, bool info)
+{
+	struct pci_dev *pdev = to_pci_dev(xhci_to_hcd(xhci)->self.controller);
+	unsigned long flags;
+	u32 portsc;
+
+	spin_lock_irqsave(&xhci->lock, flags);
+
+	portsc = readl(port->addr);
+	if (portsc == ~(u32)0) {
+		spin_unlock_irqrestore(&xhci->lock, flags);
+		return false;
+	}
+
+	portsc = xhci_port_state_to_neutral(portsc);
+	/* PORT_PE is RW1C: writing one disables the SuperSpeed port. */
+	writel(portsc | PORT_PE, port->addr);
+	portsc = readl(port->addr);
+
+	spin_unlock_irqrestore(&xhci->lock, flags);
+
+	if (info)
+		xhci_info(xhci,
+			  "force_usb2_ports: disabled SuperSpeed port %s/%d, PORTSC=0x%08x\n",
+			  pci_name(pdev), port->hcd_portnum + 1, portsc);
+	else
+		xhci_dbg(xhci,
+			 "force_usb2_ports: keeping SuperSpeed port %s/%d disabled\n",
+			 pci_name(pdev), port->hcd_portnum + 1);
+
+	return true;
+}
+
+static void xhci_pci_force_usb2_ports(struct xhci_hcd *xhci, bool info)
+{
+	struct xhci_hub *rhub = &xhci->usb3_rhub;
+	struct xhci_port *port;
+	int i;
+
+	for (i = 0; i < rhub->num_ports; i++) {
+		port = rhub->ports[i];
+		if (!port || !xhci_pci_force_usb2_port_selected(xhci, i + 1))
+			continue;
+
+		xhci_pci_disable_usb3_port(xhci, port, info);
+	}
+}
+
+static int xhci_pci_hub_control(struct usb_hcd *hcd, u16 type_req, u16 value,
+				u16 index, char *buf, u16 length)
+{
+	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
+	struct xhci_hub *rhub = &xhci->usb3_rhub;
+	unsigned int portnum = index & 0xff;
+
+	if (type_req != GetPortStatus || hcd != rhub->hcd || !portnum ||
+	    portnum > rhub->num_ports ||
+	    !xhci_pci_force_usb2_port_selected(xhci, portnum))
+		return xhci_hub_control(hcd, type_req, value, index, buf, length);
+
+	/*
+	 * Preserve the native root-hub status handling after disabling the
+	 * selected SuperSpeed port.  In particular, usbcore must still see
+	 * the port changes that drive reconnection through the USB 2.0
+	 * companion root hub.
+	 */
+	xhci_pci_disable_usb3_port(xhci, rhub->ports[portnum - 1], false);
+
+	return xhci_hub_control(hcd, type_req, value, index, buf, length);
+}
+
 static int xhci_pci_run(struct usb_hcd *hcd)
 {
+	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
 	int ret;
 
 	if (usb_hcd_is_primary_hcd(hcd)) {
@@ -277,7 +453,21 @@ static int xhci_pci_run(struct usb_hcd *hcd)
 			return ret;
 	}
 
-	return xhci_run(hcd);
+	ret = xhci_run(hcd);
+	if (ret)
+		return ret;
+
+	/*
+	 * Do not suppress the USB 3.x root hub. xHCI expects both HCDs on
+	 * controllers that physically implement USB 2.x and USB 3.x ports.
+	 * Instead, disable the SuperSpeed ports after the USB 3.x HCD starts.
+	 */
+	if (force_usb2_ports_count && hcd == xhci->usb3_rhub.hcd) {
+		xhci_pci_validate_force_usb2_ports(xhci);
+		xhci_pci_force_usb2_ports(xhci, true);
+	}
+
+	return 0;
 }
 
 static void xhci_pci_stop(struct usb_hcd *hcd)
@@ -916,6 +1106,9 @@ static int xhci_pci_resume(struct usb_hcd *hcd, pm_message_t msg)
 		xhci_pme_quirk(hcd);
 
 	retval = xhci_resume(xhci, msg);
+	if (!retval && force_usb2_ports_count)
+		xhci_pci_force_usb2_ports(xhci, true);
+
 	return retval;
 }
 
@@ -1030,6 +1223,7 @@ static struct pci_driver xhci_pci_driver = {
 
 static int __init xhci_pci_init(void)
 {
+	xhci_pci_validate_force_usb2_specs();
 	xhci_init_driver(&xhci_pci_hc_driver, &xhci_pci_overrides);
 	xhci_pci_hc_driver.pci_suspend = pm_ptr(xhci_pci_suspend);
 	xhci_pci_hc_driver.pci_resume = pm_ptr(xhci_pci_resume);
