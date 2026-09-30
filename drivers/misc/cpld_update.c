@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Generic two-wire GPIO waveform interface for userspace CPLD updaters. */
+/* Generic two-wire GPIO and I2C interface for userspace CPLD updaters. */
 
 #include <linux/atomic.h>
 #include <linux/compat.h>
@@ -8,6 +8,7 @@
 #include <linux/fs.h>
 #include <linux/gpio/consumer.h>
 #include <linux/idr.h>
+#include <linux/i2c.h>
 #include <linux/kref.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
@@ -23,6 +24,7 @@
 #define CPLD_GPIO_UPDATE_NAME		"cpld-update"
 #define CPLD_GPIO_UPDATE_MAX_DEVS	256
 #define CPLD_GPIO_UPDATE_MAX_XFER	8192
+#define CPLD_I2C_UPDATE_MAX_XFER	512
 #define CPLD_GPIO_UPDATE_DEF_DELAY_US	5
 #define CPLD_GPIO_UPDATE_MAX_DELAY_US	1000
 
@@ -30,6 +32,9 @@ struct cpld_gpio_update {
 	struct device *dev;
 	struct gpio_desc *scl;
 	struct gpio_desc *sda;
+	struct i2c_client *client;
+	unsigned int transport;
+	u32 i2c_address;
 	struct miscdevice miscdev;
 	/* Serializes waveform operations and device lifecycle transitions. */
 	struct mutex io_lock;
@@ -71,6 +76,8 @@ static void cpld_gpio_set_scl_high(struct cpld_gpio_update *up)
 
 static void cpld_gpio_release_lines(struct cpld_gpio_update *up)
 {
+	if (up->transport != CPLD_UPDATE_TRANSPORT_GPIO)
+		return;
 	gpiod_set_raw_value(up->sda, 1);
 	gpiod_set_raw_value(up->scl, 1);
 }
@@ -198,6 +205,9 @@ static long cpld_gpio_update_xfer(struct cpld_gpio_update *up,
 	u8 *buf;
 	int ret = 0;
 
+	if (up->transport != CPLD_UPDATE_TRANSPORT_GPIO)
+		return -ENOTTY;
+
 	if (copy_from_user(&xfer, (void __user *)arg, sizeof(xfer)))
 		return -EFAULT;
 	if (!xfer.data || !xfer.len || xfer.len > CPLD_GPIO_UPDATE_MAX_XFER ||
@@ -240,19 +250,109 @@ static long cpld_gpio_update_xfer(struct cpld_gpio_update *up,
 	return ret;
 }
 
+static long cpld_update_i2c_xfer(struct cpld_gpio_update *up,
+				  unsigned long arg)
+{
+	struct cpld_update_i2c_xfer xfer;
+	struct i2c_msg msgs[2] = { };
+	u8 *tx_buf = NULL;
+	u8 *rx_buf = NULL;
+	int num_msgs = 0;
+	int transferred;
+	int ret;
+
+	if (up->transport != CPLD_UPDATE_TRANSPORT_I2C)
+		return -ENOTTY;
+	if (copy_from_user(&xfer, (void __user *)arg, sizeof(xfer)))
+		return -EFAULT;
+	if ((!xfer.tx_len && !xfer.rx_len) || xfer.flags || xfer.reserved ||
+	    xfer.tx_len > CPLD_I2C_UPDATE_MAX_XFER ||
+	    xfer.rx_len > CPLD_I2C_UPDATE_MAX_XFER ||
+	    (xfer.tx_len && !xfer.tx_data) ||
+	    (xfer.rx_len && !xfer.rx_data))
+		return -EINVAL;
+
+	if (xfer.tx_len) {
+		tx_buf = memdup_user(u64_to_user_ptr(xfer.tx_data), xfer.tx_len);
+		if (IS_ERR(tx_buf))
+			return PTR_ERR(tx_buf);
+		msgs[num_msgs].addr = up->client->addr;
+		msgs[num_msgs].len = xfer.tx_len;
+		msgs[num_msgs].buf = tx_buf;
+		num_msgs++;
+	}
+	if (xfer.rx_len) {
+		rx_buf = kmalloc(xfer.rx_len, GFP_KERNEL);
+		if (!rx_buf) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		msgs[num_msgs].addr = up->client->addr;
+		msgs[num_msgs].flags = I2C_M_RD;
+		msgs[num_msgs].len = xfer.rx_len;
+		msgs[num_msgs].buf = rx_buf;
+		num_msgs++;
+	}
+
+	transferred = i2c_transfer(up->client->adapter, msgs, num_msgs);
+	if (transferred != num_msgs) {
+		ret = transferred < 0 ? transferred : -EIO;
+		dev_err_ratelimited(up->dev,
+			"I2C transfer failed on %s adapter %d at 0x%02x (tx=%u rx=%u): %d\n",
+			up->client->adapter->name, up->client->adapter->nr,
+			up->client->addr, xfer.tx_len, xfer.rx_len, ret);
+		goto out;
+	}
+
+	ret = 0;
+	if (xfer.rx_len &&
+	    copy_to_user(u64_to_user_ptr(xfer.rx_data), rx_buf, xfer.rx_len))
+		ret = -EFAULT;
+out:
+	kfree(rx_buf);
+	kfree(tx_buf);
+	return ret;
+}
+
 static long cpld_gpio_update_ioctl(struct file *file, unsigned int cmd,
 				   unsigned long arg)
 {
 	struct cpld_gpio_update *up = file->private_data;
+	struct cpld_update_info info;
 	__u32 value;
 	int ret = 0;
 
-	if (_IOC_TYPE(cmd) != CPLD_GPIO_IOC_MAGIC)
+	if (_IOC_TYPE(cmd) == CPLD_UPDATE_IOC_MAGIC) {
+		mutex_lock(&up->io_lock);
+		if (up->disconnected) {
+			ret = -ENODEV;
+		} else if (up->suspended) {
+			ret = -EBUSY;
+		} else if (cmd == CPLD_UPDATE_IOC_GET_INFO) {
+			info.transport = up->transport;
+			info.i2c_address = up->i2c_address;
+			if (copy_to_user((void __user *)arg, &info, sizeof(info)))
+				ret = -EFAULT;
+		} else if (cmd == CPLD_UPDATE_IOC_I2C_XFER) {
+			ret = cpld_update_i2c_xfer(up, arg);
+		} else {
+			ret = -ENOTTY;
+		}
+		mutex_unlock(&up->io_lock);
+		return ret;
+	}
+
+	if (_IOC_TYPE(cmd) != CPLD_GPIO_IOC_MAGIC ||
+	    up->transport != CPLD_UPDATE_TRANSPORT_GPIO)
 		return -ENOTTY;
 
 	mutex_lock(&up->io_lock);
 	if (up->disconnected) {
 		ret = -ENODEV;
+		goto unlock;
+	}
+	if (up->suspended) {
+		ret = -EBUSY;
 		goto unlock;
 	}
 
@@ -355,6 +455,19 @@ static int cpld_gpio_update_probe(struct platform_device *pdev)
 		goto free_up;
 	}
 
+	up->transport = CPLD_UPDATE_TRANSPORT_GPIO;
+	ret = device_property_read_u32(dev, "marvell,cpld-i2c-address",
+				       &up->i2c_address);
+	if (ret) {
+		ret = dev_err_probe(dev, ret,
+				    "missing marvell,cpld-i2c-address\n");
+		goto free_id;
+	}
+	if (!up->i2c_address || up->i2c_address > 0x7f) {
+		dev_err(dev, "marvell,cpld-i2c-address must be a 7-bit address\n");
+		ret = -EINVAL;
+		goto free_id;
+	}
 	up->scl = devm_gpiod_get(dev, "scl", GPIOD_OUT_HIGH_OPEN_DRAIN);
 	if (IS_ERR(up->scl)) {
 		ret = dev_err_probe(dev, PTR_ERR(up->scl),
@@ -398,8 +511,8 @@ static int cpld_gpio_update_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, up);
-	dev_info(dev, "registered /dev/%s with %u us delay\n",
-		 up->name, up->delay_us);
+	dev_info(dev, "registered /dev/%s with %u us delay, target 0x%02x\n",
+		 up->name, up->delay_us, up->i2c_address);
 	return 0;
 
 free_id:
@@ -476,7 +589,115 @@ static struct platform_driver cpld_gpio_update_driver = {
 		.pm = &cpld_gpio_update_pm_ops,
 	},
 };
-module_platform_driver(cpld_gpio_update_driver);
+static const struct i2c_device_id cpld_update_i2c_ids[] = {
+	{ "cpld-update", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, cpld_update_i2c_ids);
 
-MODULE_DESCRIPTION("Generic GPIO waveform interface for CPLD updates");
+static int cpld_update_i2c_probe(struct i2c_client *client)
+{
+	struct cpld_gpio_update *up;
+	int ret;
+
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
+		return dev_err_probe(&client->dev, -EOPNOTSUPP,
+				     "adapter lacks standard I2C transfers\n");
+
+	up = kzalloc(sizeof(*up), GFP_KERNEL);
+	if (!up)
+		return -ENOMEM;
+
+	up->dev = &client->dev;
+	up->client = client;
+	up->transport = CPLD_UPDATE_TRANSPORT_I2C;
+	up->i2c_address = client->addr;
+	mutex_init(&up->io_lock);
+	kref_init(&up->refcount);
+	atomic_set(&up->opened, 0);
+
+	up->id = cpld_gpio_update_alloc_id(&client->dev);
+	if (up->id < 0) {
+		ret = up->id;
+		goto err_free;
+	}
+
+	snprintf(up->name, sizeof(up->name), "%s%d",
+		 CPLD_GPIO_UPDATE_NAME, up->id);
+	up->miscdev.minor = MISC_DYNAMIC_MINOR;
+	up->miscdev.name = up->name;
+	up->miscdev.fops = &cpld_gpio_update_fops;
+	up->miscdev.parent = &client->dev;
+	up->miscdev.mode = 0600;
+
+	ret = misc_register(&up->miscdev);
+	if (ret)
+		goto err_id;
+
+	i2c_set_clientdata(client, up);
+	dev_info(&client->dev,
+		 "registered /dev/%s on %s adapter %d at 0x%02x\n",
+		 up->name, client->adapter->name, client->adapter->nr,
+		 client->addr);
+	return 0;
+
+err_id:
+	ida_free(&cpld_gpio_update_ida, up->id);
+err_free:
+	kfree(up);
+	return ret;
+}
+
+static void cpld_update_i2c_remove(struct i2c_client *client)
+{
+	struct cpld_gpio_update *up = i2c_get_clientdata(client);
+
+	misc_deregister(&up->miscdev);
+	mutex_lock(&up->io_lock);
+	up->disconnected = true;
+	mutex_unlock(&up->io_lock);
+	kref_put(&up->refcount, cpld_gpio_update_free);
+}
+
+static const struct of_device_id cpld_update_i2c_of_match[] = {
+	{ .compatible = "marvell,cpld-i2c-upgrade" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, cpld_update_i2c_of_match);
+
+static struct i2c_driver cpld_update_i2c_driver = {
+	.driver = {
+		.name = "cpld_update_i2c",
+		.of_match_table = cpld_update_i2c_of_match,
+	},
+	.probe = cpld_update_i2c_probe,
+	.remove = cpld_update_i2c_remove,
+	.id_table = cpld_update_i2c_ids,
+};
+
+static int __init cpld_update_init(void)
+{
+	int ret;
+
+	ret = platform_driver_register(&cpld_gpio_update_driver);
+	if (ret)
+		return ret;
+
+	ret = i2c_add_driver(&cpld_update_i2c_driver);
+	if (ret)
+		platform_driver_unregister(&cpld_gpio_update_driver);
+
+	return ret;
+}
+
+static void __exit cpld_update_exit(void)
+{
+	i2c_del_driver(&cpld_update_i2c_driver);
+	platform_driver_unregister(&cpld_gpio_update_driver);
+}
+
+module_init(cpld_update_init);
+module_exit(cpld_update_exit);
+
+MODULE_DESCRIPTION("Unified GPIO and I2C interface for CPLD updates");
 MODULE_LICENSE("GPL");
