@@ -1,0 +1,206 @@
+#
+# Cavium ethernet device configuration
+#
+
+config NET_VENDOR_CAVIUM
+	bool "Cavium ethernet drivers"
+	depends on PCI
+	default y
+	---help---
+	  Select this option if you want enable Cavium network support.
+
+	  If you have a Cavium SoC or network adapter, say Y.
+
+if NET_VENDOR_CAVIUM
+
+config THUNDER_NIC_PF
+	tristate "Thunder Physical function driver"
+	depends on 64BIT
+	select THUNDER_NIC_BGX
+	---help---
+	  This driver supports Thunder's NIC physical function.
+	  The NIC provides the controller and DMA engines to
+	  move network traffic to/from the memory. The NIC
+	  works closely with TNS, BGX and SerDes to implement the
+	  functions replacing and virtualizing those of a typical
+	  standalone PCIe NIC chip.
+
+config THUNDER_NIC_VF
+	tristate "Thunder Virtual function driver"
+	select CAVIUM_PTP
+	depends on 64BIT
+	---help---
+	  This driver supports Thunder's NIC virtual function
+
+config	THUNDER_NIC_BGX
+	tristate "Thunder MAC interface driver (BGX)"
+	depends on 64BIT
+	select PHYLIB
+	select MDIO_THUNDER
+	select THUNDER_NIC_RGX
+	---help---
+	  This driver supports programming and controlling of MAC
+	  interface from NIC physical function driver.
+
+config	THUNDER_NIC_RGX
+	tristate "Thunder MAC interface driver (RGX)"
+	depends on 64BIT
+	select PHYLIB
+	select MDIO_THUNDER
+	---help---
+	  This driver supports configuring XCV block of RGX interface
+	  present on CN81XX chip.
+
+config CAVIUM_PTP
+	tristate "Cavium PTP coprocessor as PTP clock"
+	depends on 64BIT
+	depends on PTP_1588_CLOCK
+	select CAVIUM_RST
+	default y
+	---help---
+	  This driver adds support for the Precision Time Protocol Clocks and
+	  Timestamping coprocessor (PTP) found on Cavium processors.
+	  PTP provides timestamping mechanism that is suitable for use in IEEE 1588
+	  Precision Time Protocol or other purposes.  Timestamps can be used in
+	  BGX, TNS, GTI, and NIC blocks.
+
+config LIQUIDIO
+	tristate "Cavium LiquidIO support"
+	depends on 64BIT
+	imply PTP_1588_CLOCK
+	select PTP_1588_CLOCK_CAVIUM_PTP
+	select FW_LOADER
+	select LIBCRC32C
+	---help---
+	  This driver supports Cavium LiquidIO Intelligent Server Adapters
+	  based on CN66XX, CN68XX and CN23XX chips.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called liquidio.  This is recommended.
+
+config OCTEON_MGMT_ETHERNET
+	tristate "Octeon Management port ethernet driver (CN5XXX, CN6XXX)"
+	depends on CAVIUM_OCTEON_SOC
+	select PHYLIB
+	select MDIO_OCTEON
+	default y
+	help
+	  Enable the ethernet driver for the management
+	  port on Cavium Networks' Octeon CN57XX, CN56XX, CN55XX,
+	  CN54XX, CN52XX, and CN6XXX chips.
+
+config LIQUIDIO_VF
+	tristate "Cavium LiquidIO VF support"
+	depends on 64BIT && PCI_MSI
+	imply PTP_1588_CLOCK
+	---help---
+	  This driver supports Cavium LiquidIO Intelligent Server Adapter
+	  based on CN23XX chips.
+
+	  To compile this driver as a module, choose M here: The module
+	  will be called liquidio_vf. MSI-X interrupt support is required
+	  for this driver to work correctly
+
+config OCTEONTX_FPA_PF
+	tristate "OcteonTX free pool allocator physical function driver(FPA_PF)"
+	depends on 64BIT
+	default y
+	help
+	  Select this option to enable FPA Physical function.
+          FPA provides hardware assisted memory management for
+	  OcteonTX coprocessors.
+
+config OCTEONTX_FPA_VF
+	tristate "OcteonTX free pool allocator virtual function driver(FPA_VF)"
+	depends on 64BIT
+	default y
+	help
+	  Select this option to enable FPA Virtual function.
+          FPA provides hardware assisted memory management for
+	  OcteonTX coprocessors. Each VF owns single FPA pool.
+
+config OCTEONTX_RST
+	tristate "OcteonTX Reset driver(RST)"
+	depends on 64BIT
+	default y
+	help
+	  Select this option to enable RST.
+
+config OCTEONTX_SSO_PF
+	tristate "OcteonTX SSO physical function driver(SSO_PF)"
+	depends on 64BIT && OCTEONTX_FPA_PF && OCTEONTX_FPA_VF && OCTEONTX_RST
+	default y
+	help
+	  Select this option to enable SSO Physical function.
+          SSO is a way to submit work from Cores.
+
+config OCTEONTX_SSOW_PF
+	tristate "OcteonTX SSOW physical function driver(SSOW_PF)"
+	depends on 64BIT && OCTEONTX_SSO_PF
+	default y
+	help
+	  Select this option to enable SSOW Physical function.
+          SSOW is a way to get work for cores.
+
+config OCTEONTX_PKO_PF
+	tristate "OcteonTX PKO physical function driver(PKO_PF)"
+	depends on 64BIT && OCTEONTX_FPA_PF && OCTEONTX_FPA_VF
+	default y
+	help
+	  Select this option to enable PKO Physical function.
+
+config OCTEONTX_LBK
+	tristate "OcteonTX Loopback Interface driver(LBK)"
+	depends on 64BIT
+	default y
+	help
+	  Select this option to enable LBK.
+
+config OCTEONTX_TIM_PF
+	tristate "OcteonTX TIM physical function driver(TIM_PF)"
+	depends on 64BIT && OCTEONTX_RST
+	default y
+	help
+	  Select this option to enable TIM Physical function.
+
+config OCTEONTX_PKI
+	tristate "OcteonTX Input packet parser(PKI)"
+	depends on 64BIT
+	default y
+	help
+	  Select this option to enable PKI.
+          PKI parses input packets and create work.
+
+config OCTEONTX_DPI
+	tristate "OcteonTX DMA Packet Interface(DPI)"
+	depends on 64BIT
+	default y
+	help
+	  Select this option to enable DPI.
+	  DPI (DMA packet interface) provides DMA support for MAC.
+	  It transfers data between onchip IO bus and SLI.
+	  SLI interfaces PEM(PCIe) blocks.
+
+config OCTEONTX_SLI_PF
+	tristate "OcteonTX SLI physical function driver(SLI_PF)"
+	depends on 64BIT && OCTEONTX_DPI && OCTEONTX_RST
+	default y
+	help
+	  Select this option to enable SLI.
+          SLI interfaces PEM(PCIe) blocks to the cores and memory.
+          SLI needs to be configured when OcteonTX is connected
+          in EP mode to a host.
+
+config OCTEONTX
+	tristate "OcteonTX coprocessor maintanier"
+	depends on THUNDER_NIC_BGX && OCTEONTX_FPA_PF && OCTEONTX_SSO_PF
+	depends on OCTEONTX_PKO_PF && OCTEONTX_SSOW_PF && OCTEONTX_PKI
+	depends on OCTEONTX_DPI && OCTEONTX_LBK && OCTEONTX_TIM_PF
+	depends on OCTEONTX_SLI_PF
+	depends on CRYPTO_DEV_OCTEONTX_CPT
+	depends on CRYPTO_DEV_OCTEONTX_ZIP
+	default y
+	help
+	  Select this option to enable Octeon coprocessor management.
+
+endif # NET_VENDOR_CAVIUM

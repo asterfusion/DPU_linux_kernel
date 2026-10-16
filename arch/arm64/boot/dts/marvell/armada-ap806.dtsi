@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (C) 2018 Marvell Technology Group Ltd.
+ *
+ * Device Tree file for Marvell Armada AP806.
+ */
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#define AP_NAME		ap806
+#include "armada-ap80x.dtsi"
+
+/ {
+	model = "Marvell Armada AP806";
+	AP_NAME {
+		config-space@f0000000 {
+			ap_syscon1:system-controller@6f8000 {
+				cpu_clk: clock-cpu {
+					compatible = "marvell,ap806-cpu-clock";
+					clocks = <&ap_clk 0>, <&ap_clk 1>;
+					#clock-cells = <1>;
+				};
+			};
+
+			ap_syscon0: system-controller@6f4000 {
+				ap_clk: clock {
+					compatible = "marvell,ap806-clock";
+					#clock-cells = <1>;
+				};
+			};
+		};
+	};
+};

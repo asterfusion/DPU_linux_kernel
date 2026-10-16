@@ -1,0 +1,198 @@
+#
+# MARVELL SoC drivers
+#
+
+menu "Marvell SoC drivers"
+
+config OCTEONTX2_RM
+	tristate "OcteonTX2 RVU Resource Manager driver"
+	depends on OCTEONTX2_AF
+	---help---
+	  This driver offers resource management interfaces for Marvell's
+	  OcteonTX2 Resource Virtualization Unit SSO/TIM PFs which are used
+	  for interfacing with non-NIC hardware offload units.
+
+config OCTEONTX2_RM_DOM_SYSFS
+	bool "OcteonTX2 RVU Resource Manager domain sysfs"
+	depends on OCTEONTX2_RM
+	---help---
+	  Enable Application Domain sysfs which simplifies management of
+	  SSO/TIM VFs and OcteonTX2 RVU based NIC devices by the system
+	  administrator. This interface consists of the following files:
+
+	  I. /sys/bus/pci/drivers/octeontx2-rm/0*/create_domain
+
+	  Writing to this file will:
+	  1. Create a domain directory in /sys/bus/pci/drivers/octeontx2-rm/0*
+	     with the domain name
+	  2. Reserve one of SSO/TIM VFs for this domain and set its limits
+	     according to the specification passed in write string
+	  3. Create symlinks to all devices that will be part of the domain
+	     in the directory created in point 1
+	  4. Create domain_id file returning the ID assigned to this domain
+	     (effectively the domain name)
+	  5. Create domain_in_use file which reports state of domain's
+	     SSO/TIM device's in_use file to indicate when domain is used
+	     by an application.
+
+	  The syntax for writing into this file is:
+
+	      name;param:val(;param:val)*
+
+	  * name - domain name
+	  * param - parameter name, based on the parameter, its value 'val'
+	    has to have a different format:
+	    * sso, ssow, npa, tim, cpt - 'val' is an integer value of the
+	      number of LFs to assign to the domain
+	    * port - 'val' is in 'DDDD:BB:DD.F' format and specifies device
+	      representing a port.
+
+	  There are the following rules when creating a domain:
+
+	  1. Domain names must be unique
+	  2. Each domain must have at least 1 NPA and 1 SSOW LF
+	  3. One port may be only assigned to a single domain
+
+	  II. /sys/bus/pci/drivers/octeontx2-rm/0*/destroy_domain
+
+	  Writing domain name to this file will cause given domain to be
+	  removed from the sysfs. This includes:
+	  1. Setting all limits of domain's SSO/TIM device to 0
+	  2. Removing all sysfs structures for this domain
+	  3. Removing all ports in this application domain from the list of
+	     ports in use.
+
+	  Removal of the domain is disabled while domain is in use, that
+	  is while the 'in_use' flag of the domain's SSO/TIM device is set.
+	  User/admin may query the status of this flag using the
+	  'domain_in_use'  file in the domain's sysfs directory.
+
+config OCTEONTX2_DPI_PF
+	tristate "OcteonTX2 DPI-DMA PF driver"
+	depends on ARM64 && PCI
+	---help---
+	  Select this option to enable DPI PF driver support.
+	  DPI (DMA packet interface) provides DMA support for MAC.
+	  This driver intializes dpi PF device and enables VF's for supporting
+	  different types of DMA transfers.
+
+config OCTEONTX2_SDP_PF
+	tristate "OcteonTX2 SDP PF driver"
+	depends on ARM64 && PCI && OCTEONTX2_AF && OCTEONTX2_MBOX
+	default y
+	---help---
+	  Select this option to enable SDP PF driver support.
+
+config OCTEONTX2_PCI_CONSOLE
+	tristate "OcteonTX2 PCI Endpoint console driver"
+	depends on ARM64 && PCI
+	default y
+	---help---
+	  Select this option to enable the PCI console driver when OcteonTX2
+	  is configured as an Endpoint.  This allows the host [PC] to connect
+	  to the Linux console via PCI (using the host remote console utility).
+	  To enable this console, specify 'console=pci0' on the kernel
+	  command line.
+	  To compile this as a module, choose M here.  However, when used
+	  as a module, some kernel boot messages may be missing from the
+	  console.
+
+config OCTEONTX2_PCI_CONSOLE_DEBUG
+	bool "OcteonTX2 PCI Endpoint console driver verbose debug messages"
+	depends on OCTEONTX2_PCI_CONSOLE
+	help
+	  Say Y here if you want the OcteonTX2 PCI console driver
+	  to write verbose debug messages to the system log.  Select this
+	  if you are having a problem with the OcteonTX2 PCI console
+	  and want to see more details of the console's operation.
+
+	  If you are unsure about this, say N here.
+
+config GTI_WATCHDOG
+       tristate "GTI Watchdog driver"
+	depends on ARM64
+	---help---
+	GTI Watchdog driver, provides ioctl's for applications to
+	setup and disable the NMI Watchdog and also provides an
+	mmap() interface to map GTI device memory into process
+	address space for the application to directly poke the
+	GTI watchdog without any kernel support and entry.
+
+config MDIO_DEBUGFS
+       tristate "Stub driver for debugfs support for mdio commands "
+	depends on OCTEONTX2_AF
+	---help---
+	provides debugfs support to initiate mdio commands via smc call
+	to the atf.
+
+config OCTEONTX_INFO
+       tristate "OcteonTX Info driver"
+	depends on PROC_FS
+	help
+	provides procfs interface to board information like board name, board revision
+	mac addresses, board serial number and more. These are boards housing Marvell
+	OcteonTX family chipsets.
+
+config OCTEONTX2_SDEI_GHES
+	bool "OcteonTX2 Generic Hardware Error Source (GHES) support"
+	depends on OF
+	select EDAC
+	select EDAC_GHES
+	select ACPI_APEI
+	select ACPI_APEI_GHES
+	select CRASH_DUMP
+	help
+	  Select this option to enable support for RAS Generic Hardware Error
+	  Source (GHES) reporting on platforms that do not use ACPI.
+	  This will allow RAS errors that are detected by the OcteonTX2 to
+	  be reported using kernel logging.
+
+config OCTEONTX2_SDEI_GHES_DEBUG
+	bool "OcteonTX2 Generic Hardware Error Source (GHES) verbose debug msgs"
+	depends on OCTEONTX2_SDEI_GHES
+	help
+	  Say Y here if you want the OcteonTX2 GHES support to
+	  write verbose debug messages to the system log.  Select this
+	  if you are having a problem with the OcteonTX2 GHES support
+	  and want to see more details.
+	  If you are unsure about this, say N here.
+
+config OCTEONTX2_SDEI_GHES_BERT
+	bool "OcteonTX2 GHES Boot Error Record Table (BERT) support"
+	depends on OCTEONTX2_SDEI_GHES
+	default y
+	help
+	  Select this option to enable reporting of fatal OcteonTX2 GHES
+	  errors on subsequent Linux boot.  Normally, fatal errors will
+	  reset the system.  Enabling support here will allow such errors
+	  to be reported when Linux is started again.
+
+config OCTEONTX2_EINJ
+	tristate "OcteonTX2 EDAC ECC Injection"
+	depends on OCTEONTX2_SDEI_GHES
+	help
+	  Provides support for error injection to OcteonTX2
+	  memory controllers (LMC) and cache blocks.
+	  This facilitates testing of the memory controller RAS features and
+	  is intended to be used by test personnel when conducting system tests.
+
+	  To compile this as a module, choose M here. The module will be
+	  called otx2-einj.
+	  Unless testing, say N here.
+
+config OCTEONTX_SERDES
+	tristate "OcteonTX serdes debug commands"
+	depends on ARM64
+	help
+	  Provides debugfs commands which allows to collect serdes information,
+	  capture eye or use PRBS.
+
+config OCTEONTX2_LLC
+	bool "OcteonTX2 LLC Manager driver"
+	depends on ARM64
+	default y
+	help
+	  This driver offers cache management interface for
+	  Marvell's OcteonTX2 LLC cache Lock and Unlock operations.
+
+endmenu

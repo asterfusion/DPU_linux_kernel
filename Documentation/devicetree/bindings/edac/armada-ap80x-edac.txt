@@ -1,0 +1,28 @@
+Marvell Armada AP80x-based SoCs EDAC nodes
+==========================================
+
+EDAC memory controller node:
+----------------------------
+Armada AP80x memory controller supports 8-bit ECC for 64-/32-bit bus
+widths using SECDED (Single bit Error Correction, Double bit Error
+Detection) algorithm.
+
+The memory controller EDAC driver works with memory modules with
+ECC and reliably reports about correctable ECC 1-bit errors.
+
+Uncorrectable ECC 2-bit errors, in addition to the ECC interrupt,
+generate an exception. This exception may result in the system's
+crash preventing EDAC subsystem correctly capture and report.
+
+Required properties:
+- compatible	: Must be "marvell,armada-ap80x-edac-mc"
+- reg		: The device register area
+- interrupts	: The interrupt definition
+
+Example:
+	edac_mc: edac-mc@20000 {
+		compatible = "marvell,armada-ap80x-edac-mc";
+		reg = <0x20000 0x1000>;
+		interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
+		status = "okay";
+	};

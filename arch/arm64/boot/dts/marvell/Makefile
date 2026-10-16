@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: GPL-2.0
+# Berlin SoC Family
+dtb-$(CONFIG_ARCH_BERLIN) += berlin4ct-dmp.dtb
+dtb-$(CONFIG_ARCH_BERLIN) += berlin4ct-stb.dtb
+
+# Mvebu SoC Family
+dtb-$(CONFIG_ARCH_MVEBU) += armada-3720-db.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-3720-db-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-3720-db-C.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-3720-espressobin.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-3720-espressobin-emmc.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-7020-amc.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-7020-comexpress.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-7040-db.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-7040-db-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-7040-db-C.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-7040-db-D.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-7040-db-E.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-7040-db-F.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db-C.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db-D.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db-E.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db-F.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db-G.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-db-H.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-mcbin.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-mcbin-single-shot.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-ucpe.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-ocp.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-3900-db-vd-A.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += armada-3900-db-vd-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-db-A.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-db-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-db-C.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9131-db-D.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9131-db-A.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9131-db-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9131-db-C.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9131-db-D.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9132-db-A.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9132-db-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9132-db-C.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9132-db-D.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-crb-A.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-crb-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-crb-C.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-crb-r1p3-A.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-crb-r1p3-B.dtb
+dtb-$(CONFIG_ARCH_MVEBU) += cn9130-crb-r1p3-C.dtb
+
+always		:= $(dtb-y)
+subdir-y	:= $(dts-dirs)
+clean-files	:= *.dtb

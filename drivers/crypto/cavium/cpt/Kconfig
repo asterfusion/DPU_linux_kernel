@@ -1,0 +1,32 @@
+#
+# Cavium crypto device configuration
+#
+
+config CRYPTO_DEV_CPT
+	tristate
+
+config CRYPTO_DEV_OCTEONTX_CPT
+	tristate "Support for OcteonTX CPT driver"
+	depends on ARCH_THUNDER || COMPILE_TEST
+	depends on PCI_MSI && 64BIT
+	depends on OCTEONTX2_AF
+	select CRYPTO_DEV_CPT
+	help
+		Support for Cavium Cryptographic Accelerator Unit (CPT)
+		block found in OcteonTX series of processors.
+
+		To compile this driver as modules, choose M here:
+		the modules will be called octeontx-cpt and octeontx-cptvf.
+
+config CRYPTO_DEV_OCTEONTX2_CPT
+	tristate "Support for OcteonTX2 CPT driver"
+	depends on ARCH_THUNDER || COMPILE_TEST
+	depends on PCI_MSI && 64BIT
+	depends on OCTEONTX2_AF
+	select CRYPTO_DEV_CPT
+	help
+		Support for Cryptographic Accelerator Unit (CPT)
+		block found in OcteonTX2 series of processors.
+
+		To compile this driver as modules, choose M here:
+		the modules will be called octeontx2-cpt and octeontx2-cptvf.

@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Copyright (C) 2020 Marvell International Ltd.
+ */
+
+#include "cn9130-crb-C.dts"
+
+&cp0_spi1 {
+	pinctrl-0 = <&cp0_spi0_pins>;
+};

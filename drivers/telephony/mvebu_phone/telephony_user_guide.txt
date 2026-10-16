@@ -1,0 +1,99 @@
+TDM Telephony
+==============
+
+Introduction
+------------
+There are 2 telephony controllers in Marvell SoCs:
+	- 2-channel TDM (TDM2C, available in A380)
+	- Multi-channel TDM (TDMMC, available in AXP, A7k/8k and CN913x)
+
+In order to use telephony drivers the following SW modules are required
+(Explanation will be provided later is this document):
+
+	- Linux Kernel Image with telephony support
+	- Linux Kernel device-tree with telephony support
+	- Demo user-space application (mv-voice-tool)
+
+Linux Image
+-----------
+arch/arm/configs/mvebu_v7_defconfig
+arch/arm64/confgs/marvell_v8_sdk_defconfig
+enable usage of both TDM2C and TDMMC, proper operation mode is fully
+determined by Device Tree entry.
+
+Device-tree
+------------
+Refer to: Documentation/devicetree/bindings/telephony/mvebu-phone.txt
+
+Accessing multiple TDM controllers
+----------------------------------
+In order to make use of the user-space telephony applications, it is
+possible to expose the TDM interfaces via /dev/talX character devices
+(X stands for the TDM controller id, as specified by 'cell-index'
+DT property).
+
+Above option is disabled by default. In order to enable it, pass
+mv_phone.enable_tal_dev=1" via U-Boot command line when booting
+the Linux kernel.
+
+The example uses already implemented driver:
+drivers/telephony/mvebu_phone/tal/tal_dev.c
+However, depending on the architecture and requirements, the TAL
+(Telephony Adaptation Layer) callback routines:
+  - tal_set_if()
+  - tal_dev_init/exit()
+allow to register and connect the TDM controllers with other drivers.
+
+generic mv-voice-tool
+---------------------
+User-space application which communicates via ioctl with the telephony driver.
+The application allows to configure the TDM interface TX/RX lines in
+internal loopback and check data integrity with sending/receiving incremental
+pattern. It doesn't require any external devices and board modifications.
+
+In order to run mv-voice tool, run the following command::
+
+	# ./mv_voice_tool
+
+Example for testing 32 lines with 2-byte PCM sample size on controller #1::
+
+	# ./mv_voice_tool
+
+	>>  Please enter TDM controller index: 1
+
+	>>  Please enter total lines number: 32
+	>>  Please enter PCM sample size(1/2/4): 2
+
+	 !!! Remember to initialize TDM before running the test !!!
+
+	  Marvell Voice Tool:
+	  i. Initialize TDM device
+	  l. Internal loopback test
+	  d. Disable TDM device
+	  q. Quit
+
+	>>  Please select option: i
+	[  139.356516] mvebu_phone f47a0000.tdm: Loading Marvell Telephony Driver
+	[  139.363682] mvebu_phone f47a0000.tdm: enable internal loopback on TX/RX lines
+
+	  Marvell Voice Tool:
+	  i. Initialize TDM device
+	  l. Internal loopback test
+	  d. Disable TDM device
+	  q. Quit
+
+	>>  Please select option: l
+	>>  Enter number of iterations (minimum 4): 1000
+
+	Digital loopback test(32 lines) - PASS !!!
+
+	  Marvell Voice Tool:
+	  i. Initialize TDM device
+	  l. Internal loopback test
+	  d. Disable TDM device
+	  q. Quit
+
+	>>  Please select option: q
+
+	>>  TDM stopped
+	#
