@@ -1,0 +1,290 @@
+#
+# MARVELL SoC drivers
+#
+
+menu "Marvell SoC drivers"
+
+config OCTEONTX2_RM
+	tristate "OcteonTX2 RVU Resource Manager driver"
+	depends on OCTEONTX2_AF
+	help
+	  This driver offers resource management interfaces for Marvell's
+	  OcteonTX2 Resource Virtualization Unit SSO/TIM PFs which are used
+	  for interfacing with non-NIC hardware offload units.
+
+config OCTEONTX2_RM_DOM_SYSFS
+	bool "OcteonTX2 RVU Resource Manager domain sysfs"
+	depends on OCTEONTX2_RM
+	help
+	  Enable Application Domain sysfs which simplifies management of
+	  SSO/TIM VFs and OcteonTX2 RVU based NIC devices by the system
+	  administrator. This interface consists of the following files:
+
+	  I. /sys/bus/pci/drivers/octeontx2-rm/0*/create_domain
+
+	  Writing to this file will:
+	  1. Create a domain directory in /sys/bus/pci/drivers/octeontx2-rm/0*
+	     with the domain name
+	  2. Reserve one of SSO/TIM VFs for this domain and set its limits
+	     according to the specification passed in write string
+	  3. Create symlinks to all devices that will be part of the domain
+	     in the directory created in point 1
+	  4. Create domain_id file returning the ID assigned to this domain
+	     (effectively the domain name)
+	  5. Create domain_in_use file which reports state of domain's
+	     SSO/TIM device's in_use file to indicate when domain is used
+	     by an application.
+
+	  The syntax for writing into this file is:
+
+	      name;param:val(;param:val)*
+
+	  * name - domain name
+	  * param - parameter name, based on the parameter, its value 'val'
+	    has to have a different format:
+	    * sso, ssow, npa, tim, cpt - 'val' is an integer value of the
+	      number of LFs to assign to the domain
+	    * port - 'val' is in 'DDDD:BB:DD.F' format and specifies device
+	      representing a port.
+
+	  There are the following rules when creating a domain:
+
+	  1. Domain names must be unique
+	  2. Each domain must have at least 1 NPA and 1 SSOW LF
+	  3. One port may be only assigned to a single domain
+
+	  II. /sys/bus/pci/drivers/octeontx2-rm/0*/destroy_domain
+
+	  Writing domain name to this file will cause given domain to be
+	  removed from the sysfs. This includes:
+	  1. Setting all limits of domain's SSO/TIM device to 0
+	  2. Removing all sysfs structures for this domain
+	  3. Removing all ports in this application domain from the list of
+	     ports in use.
+
+	  Removal of the domain is disabled while domain is in use, that
+	  is while the 'in_use' flag of the domain's SSO/TIM device is set.
+	  User/admin may query the status of this flag using the
+	  'domain_in_use'  file in the domain's sysfs directory.
+
+config OCTEONTX2_DPI_PF
+	tristate "OcteonTX2 DPI-DMA PF driver"
+	depends on ARM64 && PCI
+	help
+	  Select this option to enable DPI PF driver support.
+	  DPI (DMA packet interface) provides DMA support for MAC.
+	  This driver intializes dpi PF device and enables VF's for supporting
+	  different types of DMA transfers.
+
+config OCTEONTX2_SDP_PF
+	tristate "OcteonTX2 SDP PF driver"
+	depends on ARM64 && PCI && OCTEONTX2_AF && OCTEONTX2_MBOX
+	default y
+	---help---
+	  Select this option to enable SDP PF driver support.
+
+config OCTEONTX2_NPA_PF
+	tristate "OcteonTX2 NPA PF driver"
+	depends on ARM64 && PCI && OCTEONTX2_AF && OCTEONTX2_MBOX
+	default m
+	help
+	  Select this option to enable NPA PF driver support.
+
+	  NPA stands for Network Pool Allocator. This is a hardware unit on
+	  OCTEONTX2 that can maintain pools of buffer pointers. Either software
+	  or any other hardware can allocate and free pointers to buffer pools
+	  maintained by NPA.
+
+config OCTEONTX2_PCI_CONSOLE
+	tristate "OcteonTX2 PCI Endpoint console driver"
+	depends on ARM64 && PCI
+	default y
+	help
+	  Select this option to enable the PCI console driver when OcteonTX2
+	  is configured as an Endpoint.  This allows the host [PC] to connect
+	  to the Linux console via PCI (using the host remote console utility).
+	  To enable this console, specify 'console=pci0' on the kernel
+	  command line.
+	  To compile this as a module, choose M here.  However, when used
+	  as a module, some kernel boot messages may be missing from the
+	  console.
+
+config OCTEONTX2_PCI_CONSOLE_DEBUG
+	bool "OcteonTX2 PCI Endpoint console driver verbose debug messages"
+	depends on OCTEONTX2_PCI_CONSOLE
+	help
+	  Say Y here if you want the OcteonTX2 PCI console driver
+	  to write verbose debug messages to the system log.  Select this
+	  if you are having a problem with the OcteonTX2 PCI console
+	  and want to see more details of the console's operation.
+
+	  If you are unsure about this, say N here.
+
+config OCTEONTX2_PCI_CONSOLE_TRACE
+	bool "OcteonTX2 PCI Endpoint console driver trace messages"
+	depends on OCTEONTX2_PCI_CONSOLE
+	depends on DYNAMIC_FTRACE
+	help
+	  Say Y here if you want the OcteonTX2 PCI console driver
+	  to write verbose debug messages to the dynamic ftrace infrastructure.
+	  Select this if you are having a problem with the OcteonTX2 PCI console
+	  and want to see more details of the parts that are not debuggable
+	  with traditional prints coming from OCTEONTX2_PCI_CONSOLE_DEBUG.
+
+	  If you are unsure about this, say N here.
+
+config GTI_WATCHDOG
+	tristate "GTI Watchdog driver"
+	depends on ARM64
+	---help---
+	GTI Watchdog driver, provides ioctl's for applications to
+	setup and enable the NMI Watchdog and also provides
+	an mmap() interface to map GTI device memory into process
+	address space for the application to directly poke the
+	GTI watchdog without any kernel support and entry.
+
+config OCTEONTX2_LLC
+	bool "OcteonTX2 LLC Manager driver"
+	depends on ARM64
+	default y
+	help
+	  This driver offers cache management interface for
+	  Marvell's OcteonTX2 LLC cache Lock and Unlock operations.
+
+config OCTEONTX_INFO
+       tristate "OcteonTX Info driver"
+	depends on PROC_FS
+	help
+	provides procfs interface to board information like board name, board revision
+	mac addresses, board serial number and more. These are boards housing Marvell
+	OcteonTX family chipsets.
+
+config MVMDIO_UIO
+	tristate "Marvell MDIO interface driver"
+	default m
+	depends on MDIO_THUNDER
+	help
+	  Select this option if you want to provide an interface for userspace
+	  PHY drivers to access Marvell's MDIO bus.
+
+config MRVL_PHY_DIAGNOSTICS
+	tristate "Marvell PHY diagnostics debugfs driver"
+	default m
+	depends on DEBUG_FS
+	help
+	  Select this option if you want an additional interface for
+	  extended diagnostics functions for the PHY. This complements
+	  functionality offered by ethtool. Requires PHY driver support in ATF.
+
+config MRVL_PHY_7121P_MAC_ADV_FEATURES
+	tristate "Marvell PHY MAC Adv feature driver"
+	default m
+	depends on DEBUG_FS
+	help
+	  Select this option if you want an additional interface for
+	  mac advance feature functions for the PHY.
+
+config MARVELL_CN10K_SERDES_DIAGNOSTICS
+	tristate "Marvell SerDes diagnostics debugfs driver"
+	default m
+	depends on DEBUG_FS
+	help
+	  Select this option if you want to enable SerDes diagnostics
+	  interface for performing PRBS, setting Loopback mode or
+	  reading/writing Tx/Rx tuning parameters.
+
+config HW_CSR_ACCESS
+	tristate "Access HW Device Config Space"
+        default m
+	depends on OCTEONTX2_AF
+	help
+	  provides an interface which enables user space utility to read from or to write
+	  to HW Device Config Space Registers, Contexts, Memory.
+
+config OCTEONTX_SERDES
+	tristate "OcteonTX2 serdes debug commands"
+	default m
+	depends on ARM64 && HAVE_ARM_SMCCC && DEBUG_FS
+	help
+	  Provides debugfs commands which allows to collect serdes information,
+	  capture eye, use PRBS, configure serdes in loopback mode, and
+	  read/write TX tuning parameters.
+
+config MARVELL_CN10K_SWUP
+	tristate "CN10K firmware secure update"
+	depends on ARM64
+	help
+	  Provide debugfs interface for firmware update.
+	  Supported on cn10k family only.
+	  Currently supported operations:
+	    -> TIM Version check
+	    -> TIM Hash verification
+
+config OCTEONTX2_GHES_BERT
+	bool "OcteonTX2 GHES Boot Error Record support"
+	default y
+	help
+	  Select this option to enable reporting of fatal Marvell GHES
+	  errors on subsequent Linux boot.  Normally, fatal errors will
+	  reset the system.  Enabling support here will allow such errors
+	  to be reported when Linux is started again.
+
+config OCTEONTX2_CCU
+	tristate "OcteonTX2 Cache Controller Unit (CCU) driver"
+	depends on ARM64
+	default n
+	help
+	  This driver supports configuring and monitoring the OcteonTX2 Cache
+	  Controller Unit. The driver provides debugfs files to mask LLC ways
+	  for a single or multiple cpus. A README file is included which
+	  provides details on how to configure the LLC ways.
+
+	  To compile as a module choose M here.
+
+config MARVELL_FWLOG
+	tristate "firmware log interface"
+	depends on ARM64
+	help
+	  Provides interface to read firmware boot logs. Firmware bootlogs are saved
+	  in memory that is accessible from kernel. Enabling this option allows the
+	  user to dump the firmware boot logs.
+
+	  Say Y here if you want to dump the firmware boot logs from linux shell. This
+	  option is available only for CN10K and t9x platforms.
+
+config OCTEONTX2_EINJ
+        tristate "OcteonTX2 ECC Injection"
+        help
+          Provides support for error injection to OcteonTX2
+          memory controllers (LMC) and cache blocks.
+          This facilitates testing of the memory controller RAS features and
+          is intended to be used by test personnel when conducting system tests.
+
+          To compile this as a module, choose M here. The module will be
+          called otx2-einj.
+          Unless testing, say N here.
+
+config MARVELL_CN10K_EINJ
+        tristate "CN10K ECC Injection"
+        help
+          Provides support for error injection to CN10K
+          Pseudo-fault Generation processor error,
+          dram memory subsystem (DSS).
+          This facilitates testing of the memory controller RAS features and
+          is intended to be used by test personnel when conducting system tests.
+
+          To compile this as a module, choose M here. The module will be
+          called cn10k-einj.
+          Unless testing, say N here.
+
+config MARVELL_PTM_EP
+	tristate "Marvell PCIe PTM EP"
+	default m
+	help
+	  Provides PTM requestor(EP) support. The driver provides interface for
+	  triggering and capturing time.
+
+	  To compile this as a module, choose M here. The module will be called
+	  mrvl-ptm-ep.
+
+endmenu
