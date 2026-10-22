@@ -2198,8 +2198,13 @@ int otx2_open(struct net_device *netdev)
 	}
 	otx2_write64(pf, NIX_LF_RAS_ENA_W1S, 0x7FF);
 
+	/* Follow the rxvlan feature: re-enabling unconditionally brought tag
+	 * stripping back on every open (e.g. XDP attach) after "ethtool -K
+	 * rxvlan off".
+	 */
 	if (pf->flags & OTX2_FLAG_RX_VLAN_SUPPORT)
-		otx2_enable_rxvlan(pf, true);
+		otx2_enable_rxvlan(pf, !!(pf->netdev->features &
+					  NETIF_F_HW_VLAN_CTAG_RX));
 
 	/* When reinitializing enable time stamping if it is enabled before */
 	if (pf->flags & OTX2_FLAG_TX_TSTAMP_ENABLED) {
