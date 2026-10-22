@@ -3045,11 +3045,12 @@ static int otx2_xdp_setup(struct otx2_nic *pf, struct bpf_prog *prog)
 
 	old_prog = xchg(&pf->xdp_prog, prog);
 
+	/* The driver holds the single reference handed over by the core;
+	 * the extra per-RX-queue references taken here were never dropped,
+	 * leaking every detached program.
+	 */
 	if (old_prog)
 		bpf_prog_put(old_prog);
-
-	if (pf->xdp_prog)
-		bpf_prog_add(pf->xdp_prog, pf->hw.rx_queues - 1);
 
 	/* Network stack and XDP shared same rx queues.
 	 * Use separate tx queues for XDP and network stack.
