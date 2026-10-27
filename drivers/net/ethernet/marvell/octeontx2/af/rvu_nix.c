@@ -4593,6 +4593,13 @@ static int set_flowkey_fields(struct nix_rx_flowkey_alg *alg, u32 flow_cfg)
 			field->lid = NPC_LID_LE;
 			field->ltype_match = NPC_LT_LE_ROCEV2;
 			break;
+		case NIX_FLOW_KEY_TYPE_PPPOE:
+			field->lid = NPC_LID_LB;
+			field->hdr_offset = 2; /* PPPoE session_id */
+			field->bytesm1 = 1; /* 2 bytes */
+			field->ltype_match = NPC_LT_LB_PPPOE;
+			field->ltype_mask = 0xF;
+			break;
 		}
 		field->ena = 1;
 
