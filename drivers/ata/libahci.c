@@ -207,6 +207,59 @@ static int devslp_idle_timeout __read_mostly = 1000;
 module_param(devslp_idle_timeout, int, 0644);
 MODULE_PARM_DESC(devslp_idle_timeout, "device sleep idle timeout");
 
+/*
+ * JMB582 quirk (AHCI_HFLAG_FW_STATE_RESET, also applied to JMB585).
+ *
+ * Boot firmware (U-Boot/UEFI) may hand over ports with the command list or
+ * FIS receive engines still running, stale PxCLB/PxFB pointers, and
+ * SUD/ICC/ALPE/ASP/SPD settings of its own. AHCI 1.3.1 does not require
+ * any of the handling below; it is a vendor quirk. Do not rely on GHC.HR
+ * alone: stop every implemented port before the HBA reset, and afterwards
+ * put the port registers back to their cold-reset values so the port
+ * starts as if no firmware had touched it.
+ *
+ * Stop a port left running by firmware: clear ST and wait for CR, then
+ * clear FRE and wait for FR (AHCI 1.3.1 section 10.1.2 step 3), then mask
+ * port interrupts. Runs before GHC.HR.
+ */
+static void ahci_fw_quiesce_port(struct device *dev,
+				 struct ahci_host_priv *hpriv,
+				 unsigned int port)
+{
+	void __iomem *port_mmio = __ahci_port_base(hpriv, port);
+	u32 tmp;
+
+	tmp = readl(port_mmio + PORT_CMD);
+	if (tmp == 0xffffffff) {
+		dev_err(dev, "fw-quiesce: P%u PxCMD reads all ones, skipping\n",
+			port);
+		return;
+	}
+
+	if (tmp & (PORT_CMD_START | PORT_CMD_LIST_ON)) {
+		writel(tmp & ~PORT_CMD_START, port_mmio + PORT_CMD);
+		tmp = ata_wait_register(NULL, port_mmio + PORT_CMD,
+					PORT_CMD_LIST_ON, PORT_CMD_LIST_ON,
+					1, 500);
+		if (tmp & PORT_CMD_LIST_ON)
+			dev_warn(dev, "fw-quiesce: P%u CR still set 500ms after clearing ST\n",
+				 port);
+	}
+
+	tmp = readl(port_mmio + PORT_CMD);
+	if (tmp & (PORT_CMD_FIS_RX | PORT_CMD_FIS_ON)) {
+		writel(tmp & ~PORT_CMD_FIS_RX, port_mmio + PORT_CMD);
+		tmp = ata_wait_register(NULL, port_mmio + PORT_CMD,
+					PORT_CMD_FIS_ON, PORT_CMD_FIS_ON,
+					10, 1000);
+		if (tmp & PORT_CMD_FIS_ON)
+			dev_warn(dev, "fw-quiesce: P%u FR still set 1000ms after clearing FRE\n",
+				 port);
+	}
+
+	writel(0, port_mmio + PORT_IRQ_MASK);
+}
+
 static void ahci_enable_ahci(void __iomem *mmio)
 {
 	int i;
@@ -973,13 +1026,20 @@ int ahci_reset_controller(struct ata_host *host)
 {
 	struct ahci_host_priv *hpriv = host->private_data;
 	void __iomem *mmio = hpriv->mmio;
+	unsigned long port_map = hpriv->port_map;
 	u32 tmp;
+	int i;
 
 	/*
 	 * We must be in AHCI mode, before using anything AHCI-specific, such
 	 * as HOST_RESET.
 	 */
 	ahci_enable_ahci(mmio);
+
+	/* stop engines left running by boot firmware before resetting */
+	if (hpriv->flags & AHCI_HFLAG_FW_STATE_RESET)
+		for_each_set_bit(i, &port_map, AHCI_MAX_PORTS)
+			ahci_fw_quiesce_port(host->dev, hpriv, i);
 
 	/* Global controller reset */
 	if (ahci_skip_host_reset) {
@@ -1276,6 +1336,73 @@ static void ahci_port_clear_pending_irq(struct ata_port *ap)
 	writel(1 << ap->port_no, hpriv->mmio + HOST_IRQ_STAT);
 }
 
+/*
+ * JMB582 quirk: put port registers that boot firmware may have left in its
+ * own state back to their cold-reset values. Must run with ST, CR, FRE and
+ * FR all clear (AHCI 1.3.1 section 10.3.2: PxFB may only be changed with
+ * FRE and FR clear). The port is brought back up later by
+ * ahci_port_start() -> ahci_power_up() / ahci_start_port().
+ */
+static void ahci_fw_scrub_port(struct device *dev, struct ata_port *ap,
+			       void __iomem *port_mmio)
+{
+	struct ahci_host_priv *hpriv = ap->host->private_data;
+	unsigned int port = ap->port_no;
+	u32 cmd, fbs;
+
+	cmd = readl(port_mmio + PORT_CMD);
+	if (cmd & (PORT_CMD_START | PORT_CMD_LIST_ON |
+		   PORT_CMD_FIS_RX | PORT_CMD_FIS_ON)) {
+		dev_warn(dev, "fw-scrub: P%u engines still active (PxCMD=%#x), skipping scrub\n",
+			 port, cmd);
+		return;
+	}
+
+	/* drop firmware command list / received FIS addresses */
+	writel(0, port_mmio + PORT_LST_ADDR);
+	writel(0, port_mmio + PORT_LST_ADDR_HI);
+	writel(0, port_mmio + PORT_FIS_ADDR);
+	writel(0, port_mmio + PORT_FIS_ADDR_HI);
+
+	writel(0, port_mmio + PORT_IRQ_MASK);
+
+	if (hpriv->cap & HOST_CAP_FBS) {
+		fbs = readl(port_mmio + PORT_FBS);
+		if (fbs & PORT_FBS_EN)
+			writel(fbs & ~PORT_FBS_EN, port_mmio + PORT_FBS);
+	}
+
+	/*
+	 * Write 0 to PxCMD, its cold-reset value for all RW fields;
+	 * read-only bits ignore the write. If the HBA lets the HwInit
+	 * capability bits (HPCP/MPSP/CPD/ESP/FBSCP) be written they are
+	 * cleared too. This clears SUD, POD, ICC, ALPE, ASP, PMA, ATAPI,
+	 * CLO. With CAP.SSS=1,
+	 * clearing SUD puts the port in listen mode until ahci_power_up()
+	 * sets it again. Nothing in this driver sets POD, so on a CPD port
+	 * the device may stay powered off; warn about it.
+	 */
+	if (cmd & PORT_CMD_CPD)
+		dev_warn(dev, "fw-scrub: P%u has CPD=1, clearing POD may power off the device\n",
+			 port);
+	writel(0, port_mmio + PORT_CMD);
+	readl(port_mmio + PORT_CMD);	/* flush */
+
+	/*
+	 * SControl: DET=0 (no action), SPD=0 (no speed limit, as after a
+	 * cold reset), IPM=3 (the value libata uses itself). This
+	 * intentionally does not keep a firmware SPD limit (AHCI 1.3.1
+	 * section 10.5 recommends keeping it), so that
+	 * sata_link_init_spd() negotiates as on a cold boot; libata still
+	 * lowers the speed on link errors.
+	 */
+	writel(0x300, port_mmio + PORT_SCR_CTL);
+	readl(port_mmio + PORT_SCR_CTL);	/* flush */
+
+	/* the writes above may have caused PHY events; clear them */
+	ahci_port_clear_pending_irq(ap);
+}
+
 static void ahci_port_init(struct device *dev, struct ata_port *ap,
 			   int port_no, void __iomem *mmio,
 			   void __iomem *port_mmio)
@@ -1292,8 +1419,13 @@ static void ahci_port_init(struct device *dev, struct ata_port *ap,
 
 	ahci_port_clear_pending_irq(ap);
 
-	/* mark esata ports */
+	/* read ESP before the scrub below clears PxCMD */
 	tmp = readl(port_mmio + PORT_CMD);
+
+	if (hpriv->flags & AHCI_HFLAG_FW_STATE_RESET)
+		ahci_fw_scrub_port(dev, ap, port_mmio);
+
+	/* mark esata ports */
 	if ((tmp & PORT_CMD_ESP) && (hpriv->cap & HOST_CAP_SXS))
 		ap->pflags |= ATA_PFLAG_EXTERNAL;
 }

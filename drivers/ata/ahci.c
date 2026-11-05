@@ -1815,6 +1815,11 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (ahci_broken_devslp(pdev))
 		hpriv->flags |= AHCI_HFLAG_NO_DEVSLP;
 
+	/* JMB582 quirk (also JMB585): reset port state left by boot firmware */
+	if (pdev->vendor == PCI_VENDOR_ID_JMICRON &&
+	    (pdev->device == 0x0582 || pdev->device == 0x0585))
+		hpriv->flags |= AHCI_HFLAG_FW_STATE_RESET;
+
 #ifdef CONFIG_ARM64
 	if (pdev->vendor == PCI_VENDOR_ID_HUAWEI &&
 	    pdev->device == 0xa235 &&

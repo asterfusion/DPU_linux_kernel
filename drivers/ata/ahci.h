@@ -248,6 +248,8 @@ enum {
 						      suspend/resume */
 	AHCI_HFLAG_NO_SXS		= BIT(28), /* SXS not supported */
 	AHCI_HFLAG_43BIT_ONLY		= BIT(29), /* 43bit DMA addr limit */
+	AHCI_HFLAG_FW_STATE_RESET	= BIT(31), /* quiesce/scrub port state
+						      left by boot firmware */
 
 	/* ap->flags bits */
 
