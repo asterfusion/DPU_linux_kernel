@@ -8,10 +8,15 @@
 #ifndef __LINUX_RSMU_CDEV_H
 #define __LINUX_RSMU_CDEV_H
 
+#include <linux/firmware.h>
 #include <linux/miscdevice.h>
 #include <linux/regmap.h>
+#include <uapi/linux/rsmu.h>
+#include <linux/bitfield.h>
 
 struct rsmu_ops;
+
+#define FW_NAME_LEN_MAX	256
 
 /**
  * Define function to set bitfield value of read data from device
@@ -25,9 +30,11 @@ struct rsmu_ops;
  * data    bitfield data to set
  */
 #define rsmu_set_bitfield(regVal, mask, lsb, data) \
-  regVal = ( (regVal & ~(mask)) |                  \
-             ((data << lsb) & (mask))              \
-           )
+({						   \
+	regVal = (typeof(regVal))((regVal & ~(mask)) |             \
+		  (typeof(regVal))((data << lsb) & (mask))         \
+		 );				   \
+})
 
 /**
  * Define function to get bitfield value of read data from device
@@ -40,7 +47,7 @@ struct rsmu_ops;
  * lsb     least significant bit
  */
 #define rsmu_get_bitfield(regVal, mask, lsb) \
-  ((regVal & mask) >> lsb)
+	((regVal & mask) >> lsb)
 
 
 enum holdover_mode {
@@ -59,6 +66,7 @@ enum holdover_mode {
  * @lock: mutex to protect operations from being interrupted
  * @type: rsmu device type, passed through platform data
  * @ops: rsmu device methods
+ * @ddata: device specific data
  * @index: rsmu device index
  */
 struct rsmu_cdev {
@@ -70,24 +78,31 @@ struct rsmu_cdev {
 	struct mutex *lock;
 	enum rsmu_type type;
 	struct rsmu_ops *ops;
-	u8 fw_version;
+	void *ddata;
 	int index;
 };
 
 extern struct rsmu_ops cm_ops;
 extern struct rsmu_ops sabre_ops;
+extern struct rsmu_ops fc3_ops;
 
 struct rsmu_ops {
 	enum rsmu_type type;
+	int (*device_init)(struct rsmu_cdev *rsmu, char fwname[FW_NAME_LEN_MAX]);
 	int (*set_combomode)(struct rsmu_cdev *rsmu, u8 dpll, u8 mode);
 	int (*get_dpll_state)(struct rsmu_cdev *rsmu, u8 dpll, u8 *state);
-	int (*get_fw_version)(struct rsmu_cdev *rsmu);
 	int (*get_dpll_ffo)(struct rsmu_cdev *rsmu, u8 dpll,
 			    struct rsmu_get_ffo *ffo);
 	int (*set_holdover_mode)(struct rsmu_cdev *rsmu, u8 dpll,
 				 u8 enable, u8 mode);
 	int (*set_output_tdc_go)(struct rsmu_cdev *rsmu, u8 tdc,
 				 u8 enable);
+	int (*get_clock_index)(struct rsmu_cdev *rsmu, u8 dpll, s8 *clock_index);
+	int (*set_clock_priorities)(struct rsmu_cdev *rsmu, u8 dpll, u8 number_entries,
+				    struct rsmu_priority_entry *priority_entry);
+	int (*get_reference_monitor_status)(struct rsmu_cdev *rsmu, u8 clock_index,
+					    struct rsmu_reference_monitor_status_alarms *alarms);
+	int (*get_tdc_meas)(struct rsmu_cdev *rsmu, bool continuous, s64 *offset_ns);
 };
 
 /**

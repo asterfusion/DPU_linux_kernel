@@ -7,7 +7,7 @@
 #ifndef HAVE_IDT82P33_REG
 #define HAVE_IDT82P33_REG
 
-#define REG_ADDR(page, offset) (((page) << 0x7) | ((offset) & 0x7f))
+#define REG_ADDR(page, offset) (((unsigned int)(page) << 0x7) | ((unsigned int)(offset) & 0x7f))
 
 /* Register address */
 #define DPLL1_TOD_CNFG 0x134
@@ -116,5 +116,32 @@ enum dpll_state {
 	DPLL_STATE_LOSTPHASE = 7,
 	DPLL_STATE_MAX = DPLL_STATE_LOSTPHASE,
 };
+
+/* firmware interface */
+struct idt82p33_fwrc {
+	u8 hiaddr;
+	u8 loaddr;
+	u8 value;
+	u8 reserved;
+} __packed;
+
+#define PLLMASK_ADDR_HI	0xFF
+#define PLLMASK_ADDR_LO	0xA5
+
+#define PLL0_OUTMASK_ADDR_HI	0xFF
+#define PLL0_OUTMASK_ADDR_LO	0xB0
+
+#define PLL1_OUTMASK_ADDR_HI	0xFF
+#define PLL1_OUTMASK_ADDR_LO	0xB2
+
+#define PLL2_OUTMASK_ADDR_HI	0xFF
+#define PLL2_OUTMASK_ADDR_LO	0xB4
+
+#define PLL3_OUTMASK_ADDR_HI	0xFF
+#define PLL3_OUTMASK_ADDR_LO	0xB6
+
+#define DEFAULT_PLL_MASK	(0x01)
+#define DEFAULT_OUTPUT_MASK_PLL0	(0xc0)
+#define DEFAULT_OUTPUT_MASK_PLL1	DEFAULT_OUTPUT_MASK_PLL0
 
 #endif
