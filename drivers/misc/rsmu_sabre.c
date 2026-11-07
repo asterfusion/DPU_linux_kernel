@@ -10,12 +10,82 @@
 #include <linux/device.h>
 #include <linux/mfd/idt82p33_reg.h>
 #include <linux/mfd/rsmu.h>
-#include <uapi/linux/rsmu.h>
 #include <asm/unaligned.h>
 
 #include "rsmu_cdev.h"
 
+#define FW_FILENAME	"rsmu82p33xxx.bin"
+
 static u8 dpll_operating_mode_cnfg_prev[2] = {0xff, 0xff};
+
+static int check_and_set_masks(struct rsmu_cdev *rsmu, u8 page, u8 offset, u8 val)
+{
+	int err = 0;
+	(void)rsmu;
+	(void)page;
+	(void)offset;
+	(void)val;
+	return err;
+}
+
+static int load_firmware(struct rsmu_cdev *rsmu, char fwname[FW_NAME_LEN_MAX])
+{
+	char fname[128] = FW_FILENAME;
+	const struct firmware *fw;
+	struct idt82p33_fwrc *rec;
+	u8 loaddr, page, val;
+	int err;
+	size_t len;
+
+	if (fwname) /* module parameter */
+		snprintf(fname, sizeof(fname), "%s", fwname);
+
+	dev_info(rsmu->dev, "requesting firmware '%s'\n", fname);
+
+	err = request_firmware(&fw, fname, rsmu->dev);
+
+	if (err) {
+		dev_err(rsmu->dev,
+			"Failed in %s with err %d!\n", __func__, err);
+		return err;
+	}
+
+	dev_dbg(rsmu->dev, "firmware size %zu bytes\n", fw->size);
+
+	rec = (struct idt82p33_fwrc *) fw->data;
+
+	for (len = fw->size; len > 0; len -= sizeof(*rec)) {
+
+		if (rec->reserved) {
+			dev_err(rsmu->dev,
+				"bad firmware, reserved field non-zero\n");
+			err = -EINVAL;
+		} else {
+			val = rec->value;
+			loaddr = rec->loaddr;
+			page = rec->hiaddr;
+
+			rec++;
+
+			err = check_and_set_masks(rsmu, page, loaddr, val);
+		}
+
+		if (err == 0) {
+			/* Page size 128, last 4 bytes of page skipped */
+			if (loaddr > 0x7b)
+				continue;
+			err = regmap_bulk_write(rsmu->regmap, REG_ADDR(page, loaddr),
+						&val, sizeof(val));
+		}
+
+		if (err)
+			goto out;
+	}
+
+out:
+	release_firmware(fw);
+	return err;
+}
 
 static int reg_readwrite(struct rsmu_cdev *rsmu, u16 offset, u8 *val8, u8 write)
 {
@@ -63,7 +133,8 @@ static int reg_dpll_operating_mode_cnfg_offset(u8 dpll, u16 *offset)
 	return 0;
 }
 
-static int rmw_reg_dpll_operating_mode_cnfg(struct rsmu_cdev *rsmu, u8 dpll, u8 mask, u8 lsb, u8 val8, u8 *prev8)
+static int rmw_reg_dpll_operating_mode_cnfg(struct rsmu_cdev *rsmu, u8 dpll, u8 mask,
+					    u8 lsb, u8 val8, u8 *prev8)
 {
 	u16 offset;
 	int err;
@@ -91,7 +162,8 @@ static int reg_dpll_holdover_mode_cnfg_msb_offset(u8 dpll, u16 *offset)
 	return 0;
 }
 
-static int rmw_reg_dpll_holdover_mode_cnfg_msb(struct rsmu_cdev *rsmu, u8 dpll, u8 mask, u8 lsb, u8 val8, u8 *prev8)
+static int rmw_reg_dpll_holdover_mode_cnfg_msb(struct rsmu_cdev *rsmu, u8 dpll,
+					       u8 mask, u8 lsb, u8 val8, u8 *prev8)
 {
 	u16 offset;
 	int err;
@@ -106,7 +178,8 @@ static int rmw_reg_dpll_holdover_mode_cnfg_msb(struct rsmu_cdev *rsmu, u8 dpll, 
 static int set_dpll_oper_mode(struct rsmu_cdev *rsmu, u8 dpll, enum pll_mode mode, bool save_prev)
 {
 	if (save_prev)
-		return rmw_reg_dpll_operating_mode_cnfg(rsmu, dpll, 0x1f, 0, mode, &dpll_operating_mode_cnfg_prev[dpll]);
+		return rmw_reg_dpll_operating_mode_cnfg(rsmu, dpll, 0x1f, 0, mode,
+							&dpll_operating_mode_cnfg_prev[dpll]);
 	else
 		return rmw_reg_dpll_operating_mode_cnfg(rsmu, dpll, 0x1f, 0, mode, NULL);
 }
@@ -143,8 +216,8 @@ static int rsmu_sabre_set_combomode(struct rsmu_cdev *rsmu, u8 dpll, u8 mode)
 	if (err)
 		return err;
 
-	cfg &= ~(COMBO_MODE_MASK << COMBO_MODE_SHIFT);
-	cfg |= mode << COMBO_MODE_SHIFT;
+	cfg &= (u8)(~(COMBO_MODE_MASK << COMBO_MODE_SHIFT));
+	cfg |= (u8)(mode << COMBO_MODE_SHIFT);
 
 	return regmap_bulk_write(rsmu->regmap, dpll_ctrl_n, &cfg, sizeof(cfg));
 }
@@ -246,8 +319,7 @@ static int rsmu_sabre_set_holdover_mode(struct rsmu_cdev *rsmu, u8 dpll, u8 enab
 	} else {
 		prev_mode = rsmu_get_bitfield(dpll_operating_mode_cnfg_prev[dpll], 0x1f, 0);
 
-		switch(prev_mode)
-		{
+		switch (prev_mode) {
 		case PLL_MODE_DCO:
 			err = set_dpll_oper_mode(rsmu, dpll, PLL_MODE_DCO, false);
 			if (err)
@@ -265,18 +337,34 @@ static int rsmu_sabre_set_holdover_mode(struct rsmu_cdev *rsmu, u8 dpll, u8 enab
 
 		default:
 			/* Do nothing*/
-			dev_err(rsmu->dev, "%s: Unsupported operating mode 0x%02x", __func__, prev_mode);
+			dev_err(rsmu->dev, "%s: Unsupported operating mode 0x%02x",
+				__func__, prev_mode);
 			break;
 		}
 	}
 	return err;
 }
 
+static int rsmu_sabre_init(struct rsmu_cdev *rsmu, char fwname[FW_NAME_LEN_MAX])
+{
+	int err;
+
+	err = load_firmware(rsmu, fwname);
+	if (err)
+		dev_warn(rsmu->dev, "loading firmware failed with %d", err);
+
+	return 0;
+}
+
 struct rsmu_ops sabre_ops = {
 	.type = RSMU_SABRE,
+	.device_init = rsmu_sabre_init,
 	.set_combomode = rsmu_sabre_set_combomode,
 	.get_dpll_state = rsmu_sabre_get_dpll_state,
 	.get_dpll_ffo = rsmu_sabre_get_dpll_ffo,
 	.set_holdover_mode = rsmu_sabre_set_holdover_mode,
-	.get_fw_version = NULL,
+	.set_output_tdc_go = NULL,
+	.get_clock_index = NULL,
+	.set_clock_priorities = NULL,
+	.get_reference_monitor_status = NULL
 };
