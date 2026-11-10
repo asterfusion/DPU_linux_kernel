@@ -10,113 +10,186 @@
 #include <linux/device.h>
 #include <linux/mfd/idt8a340_reg.h>
 #include <linux/mfd/rsmu.h>
-#include <uapi/linux/rsmu.h>
 #include <asm/unaligned.h>
 
 #include "rsmu_cdev.h"
 
-static int rsmu_cm_set_combomode(struct rsmu_cdev *rsmu, u8 dpll, u8 mode)
-{
-	u32 dpll_ctrl_n;
-	u8 cfg;
-	int err;
+#define FW_FILENAME	"rsmu8A34xxx.bin"
+#define FW_VERSION(rsmu)	(((struct rsmucm *)rsmu->ddata)->fw_version)
 
+struct rsmucm {
+	u8 fw_version;
+};
+
+static int check_and_set_masks(struct rsmu_cdev *rsmu,
+			       u16 regaddr,
+			       u8 val)
+{
+	int err = 0;
+	(void)rsmu;
+	(void)regaddr;
+	(void)val;
+	return err;
+}
+
+static int get_dpll_reg_offset(u8 fw_version, u8 dpll, u32 *dpll_reg_offset)
+{
 	switch (dpll) {
 	case 0:
-		dpll_ctrl_n = DPLL_CTRL_0;
+		*dpll_reg_offset = DPLL_0;
 		break;
 	case 1:
-		dpll_ctrl_n = DPLL_CTRL_1;
+		*dpll_reg_offset = DPLL_1;
 		break;
 	case 2:
-		dpll_ctrl_n = DPLL_CTRL_2;
+		*dpll_reg_offset = IDTCM_FW_REG(fw_version, V520, DPLL_2);
 		break;
 	case 3:
-		dpll_ctrl_n = DPLL_CTRL_3;
+		*dpll_reg_offset = DPLL_3;
 		break;
 	case 4:
-		dpll_ctrl_n = DPLL_CTRL_4;
+		*dpll_reg_offset = IDTCM_FW_REG(fw_version, V520, DPLL_4);
 		break;
 	case 5:
-		dpll_ctrl_n = DPLL_CTRL_5;
+		*dpll_reg_offset = DPLL_5;
 		break;
 	case 6:
-		dpll_ctrl_n = DPLL_CTRL_6;
+		*dpll_reg_offset = IDTCM_FW_REG(fw_version, V520, DPLL_6);
 		break;
 	case 7:
-		dpll_ctrl_n = DPLL_CTRL_7;
+		*dpll_reg_offset = DPLL_7;
 		break;
 	default:
 		return -EINVAL;
 	}
 
+	return 0;
+}
+
+static int get_dpll_ctrl_reg_offset(u8 dpll, u32 *dpll_ctrl_reg_offset)
+{
+	switch (dpll) {
+	case 0:
+		*dpll_ctrl_reg_offset = DPLL_CTRL_0;
+		break;
+	case 1:
+		*dpll_ctrl_reg_offset = DPLL_CTRL_1;
+		break;
+	case 2:
+		*dpll_ctrl_reg_offset = DPLL_CTRL_2;
+		break;
+	case 3:
+		*dpll_ctrl_reg_offset = DPLL_CTRL_3;
+		break;
+	case 4:
+		*dpll_ctrl_reg_offset = DPLL_CTRL_4;
+		break;
+	case 5:
+		*dpll_ctrl_reg_offset = DPLL_CTRL_5;
+		break;
+	case 6:
+		*dpll_ctrl_reg_offset = DPLL_CTRL_6;
+		break;
+	case 7:
+		*dpll_ctrl_reg_offset = DPLL_CTRL_7;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int get_fw_version(struct rsmu_cdev *rsmu)
+{
+	int err;
+	u8 major;
+	u8 minor;
+	u8 hotfix;
+
+	err = regmap_bulk_read(rsmu->regmap, GENERAL_STATUS + MAJ_REL,
+			       &major, sizeof(major));
+	if (err)
+		return err;
+	major >>= 1;
+
+	err = regmap_bulk_read(rsmu->regmap, GENERAL_STATUS + MIN_REL,
+			       &minor, sizeof(minor));
+	if (err)
+		return err;
+
+	err = regmap_bulk_read(rsmu->regmap, GENERAL_STATUS + HOTFIX_REL,
+			       &hotfix, sizeof(hotfix));
+	if (err)
+		return err;
+
+	if (major >= 5 && minor >= 2) {
+		FW_VERSION(rsmu) = V520;
+		return 0;
+	}
+
+	if (major == 4 && minor >= 8) {
+		FW_VERSION(rsmu) = V487;
+		return 0;
+	}
+
+	FW_VERSION(rsmu) = V_DEFAULT;
+	return 0;
+}
+
+static int rsmu_cm_set_combomode(struct rsmu_cdev *rsmu, u8 dpll, u8 mode)
+{
+	u32 dpll_ctrl_reg_addr;
+	u8 reg;
+	int err;
+
+	err = get_dpll_ctrl_reg_offset(dpll, &dpll_ctrl_reg_addr);
+	if (err)
+		return err;
+
 	if (mode >= E_COMBOMODE_MAX)
 		return -EINVAL;
 
-	err = regmap_bulk_read(rsmu->regmap, dpll_ctrl_n + DPLL_CTRL_COMBO_MASTER_CFG,
-			       &cfg, sizeof(cfg));
+	err = regmap_bulk_read(rsmu->regmap, dpll_ctrl_reg_addr + DPLL_CTRL_COMBO_MASTER_CFG,
+						&reg, sizeof(reg));
 	if (err)
 		return err;
 
 	/* Only need to enable/disable COMBO_MODE_HOLD. */
 	if (mode)
-		cfg |= COMBO_MASTER_HOLD;
+		reg |= COMBO_MASTER_HOLD;
 	else
-		cfg &= ~COMBO_MASTER_HOLD;
+		reg &= (u8)(~COMBO_MASTER_HOLD);
 
-	return regmap_bulk_write(rsmu->regmap, dpll_ctrl_n + DPLL_CTRL_COMBO_MASTER_CFG,
-				 &cfg, sizeof(cfg));
+	return regmap_bulk_write(rsmu->regmap, dpll_ctrl_reg_addr + DPLL_CTRL_COMBO_MASTER_CFG,
+						&reg, sizeof(reg));
 }
 
 static int rsmu_cm_set_holdover_mode(struct rsmu_cdev *rsmu, u8 dpll, u8 enable, u8 mode)
 {
-	/* This function enable or disable holdover. The mode is ignored. */
-	u8 dpll_mode_offset;
+	/* This function enables or disables holdover. The mode is ignored. */
+	u32 dpll_reg_addr;
+	u8 dpll_mode_reg_off;
 	u8 state_mode;
-	u32 dpll_n;
 	u8 reg;
 	int err;
 
 	(void)mode;
 
-	dpll_mode_offset = IDTCM_FW_REG(rsmu->fw_version, V520, DPLL_MODE);
-
-	switch (dpll) {
-	case 0:
-		dpll_n = DPLL_0;
-		break;
-	case 1:
-		dpll_n = DPLL_1;
-		break;
-	case 2:
-		dpll_n = IDTCM_FW_REG(rsmu->fw_version, V520, DPLL_2);
-		break;
-	case 3:
-		dpll_n = DPLL_3;
-		break;
-	case 4:
-		dpll_n = IDTCM_FW_REG(rsmu->fw_version, V520, DPLL_4);
-		break;
-	case 5:
-		dpll_n = DPLL_5;
-		break;
-	case 6:
-		dpll_n = IDTCM_FW_REG(rsmu->fw_version, V520, DPLL_6);
-		break;
-	case 7:
-		dpll_n = DPLL_7;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	err = regmap_bulk_read(rsmu->regmap, dpll_n + dpll_mode_offset,
-			       &reg, sizeof(reg));
+	err = get_dpll_reg_offset(FW_VERSION(rsmu), dpll, &dpll_reg_addr);
 	if (err)
 		return err;
 
-	/* To enable holdover, set state_mode (bits [0,2]) to force_holdover (3).
-	   To disable holdover, set  state_mode (bits [0,2]) to automatic (0). */
+	dpll_mode_reg_off = IDTCM_FW_REG(FW_VERSION(rsmu), V520, DPLL_MODE);
+
+	err = regmap_bulk_read(rsmu->regmap, dpll_reg_addr + dpll_mode_reg_off, &reg, sizeof(reg));
+	if (err)
+		return err;
+
+	/*
+	 * To enable holdover, set state_mode (bits [0, 2]) to force_holdover (3).
+	 * To disable holdover, set state_mode (bits [0, 2]) to automatic (0).
+	 */
 	state_mode = reg & 0x7;
 	if (enable) {
 		if (state_mode == 3)
@@ -126,24 +199,24 @@ static int rsmu_cm_set_holdover_mode(struct rsmu_cdev *rsmu, u8 dpll, u8 enable,
 			return 0;
 	}
 
-	/* Set state_mode = 0 */
+	/* Set state_mode to 0 */
 	reg &= 0xF8;
 	if (enable)
 		reg |= 3;
 
-	return regmap_bulk_write(rsmu->regmap, dpll_n + dpll_mode_offset,
+	return regmap_bulk_write(rsmu->regmap, dpll_reg_addr + dpll_mode_reg_off,
 				 &reg, sizeof(reg));
 }
 
 static int rsmu_cm_set_output_tdc_go(struct rsmu_cdev *rsmu, u8 tdc, u8 enable)
 {
-	/* This function enable or disable the output TDC alignment. */
+	/* This function enables or disables output tdc alignment. */
 	u8 tdc_ctrl4_offset;
 	u32 tdc_n;
 	u8 reg;
 	int err;
 
-	tdc_ctrl4_offset = IDTCM_FW_REG(rsmu->fw_version, V520, OUTPUT_TDC_CTRL_4);
+	tdc_ctrl4_offset = IDTCM_FW_REG(FW_VERSION(rsmu), V520, OUTPUT_TDC_CTRL_4);
 
 	switch (tdc) {
 	case 0:
@@ -168,7 +241,7 @@ static int rsmu_cm_set_output_tdc_go(struct rsmu_cdev *rsmu, u8 tdc, u8 enable)
 	if (enable)
 		reg |= 0x01;
 	else
-		reg &= ~0x01;
+		reg &= (u8)(~0x01);
 
 	return regmap_bulk_write(rsmu->regmap, tdc_n + tdc_ctrl4_offset,
 				 &reg, sizeof(reg));
@@ -176,18 +249,18 @@ static int rsmu_cm_set_output_tdc_go(struct rsmu_cdev *rsmu, u8 tdc, u8 enable)
 
 static int rsmu_cm_get_dpll_state(struct rsmu_cdev *rsmu, u8 dpll, u8 *state)
 {
-	u8 cfg;
+	u8 reg;
 	int err;
 
 	/* 8 is sys dpll */
 	if (dpll > 8)
 		return -EINVAL;
 
-	err = regmap_bulk_read(rsmu->regmap, STATUS + DPLL0_STATUS + dpll, &cfg, sizeof(cfg));
+	err = regmap_bulk_read(rsmu->regmap, STATUS + DPLL0_STATUS + dpll, &reg, sizeof(reg));
 	if (err)
 		return err;
 
-	switch (cfg & DPLL_STATE_MASK) {
+	switch (reg & DPLL_STATE_MASK) {
 	case DPLL_STATE_FREERUN:
 		*state = E_SRVLOUNQUALIFIEDSTATE;
 		break;
@@ -253,7 +326,7 @@ static int rsmu_cm_get_dpll_ffo(struct rsmu_cdev *rsmu, u8 dpll,
 	if (err)
 		return err;
 
-	/* Convert to frequency control word */
+	/* Convert to frequency control word (FCW) */
 	fcw = sign_extend64(get_unaligned_le64(buf), 47);
 
 	/* FCW unit is 2 ^ -53 = 1.1102230246251565404236316680908e-16 */
@@ -262,49 +335,229 @@ static int rsmu_cm_get_dpll_ffo(struct rsmu_cdev *rsmu, u8 dpll,
 	return 0;
 }
 
-static int rsmu_cm_get_fw_version(struct rsmu_cdev *rsmu)
+static int load_firmware(struct rsmu_cdev *rsmu, char fwname[FW_NAME_LEN_MAX])
 {
+	u16 scratch = (u16)IDTCM_FW_REG(FW_VERSION(rsmu), V520, SCRATCH);
+	char fname[FW_NAME_LEN_MAX] = FW_FILENAME;
+	const struct firmware *fw;
+	struct idtcm_fwrc *rec;
+	u32 regaddr;
 	int err;
-	u8 major;
-	u8 minor;
-	u8 hotfix;
+	size_t len;
+	u8 val;
+	u8 loaddr;
 
-	err = regmap_bulk_read(rsmu->regmap, GENERAL_STATUS + MAJ_REL,
-			       &major, sizeof(major));
-	if (err)
+	if (fwname) /* Module parameter */
+		snprintf(fname, sizeof(fname), "%s", fwname);
+
+	dev_info(rsmu->dev, "requesting firmware '%s'", fname);
+
+	err = request_firmware(&fw, fname, rsmu->dev);
+	if (err) {
+		dev_err(rsmu->dev, "Loading firmware %s failed !!!", fname);
 		return err;
-	major >>= 1;
-
-	err = regmap_bulk_read(rsmu->regmap, GENERAL_STATUS + MIN_REL,
-			       &minor, sizeof(minor));
-	if (err)
-		return err;
-
-	err = regmap_bulk_read(rsmu->regmap, GENERAL_STATUS + HOTFIX_REL,
-			       &hotfix, sizeof(hotfix));
-	if (err)
-		return err;
-
-	if (major >= 5 && minor >= 2) {
-		rsmu->fw_version = V520;
-		return 0;
 	}
 
-	if (major == 4 && minor >= 8) {
-		rsmu->fw_version = V487;
-		return 0;
+	dev_dbg(rsmu->dev, "firmware size %zu bytes", fw->size);
+
+	rec = (struct idtcm_fwrc *) fw->data;
+
+	for (len = fw->size; len > 0; len -= sizeof(*rec)) {
+		if (rec->reserved) {
+			dev_err(rsmu->dev,
+				"bad firmware, reserved field non-zero");
+			err = -EINVAL;
+		} else {
+			regaddr = rec->hiaddr << 8;
+			regaddr |= rec->loaddr;
+
+			val = rec->value;
+			loaddr = rec->loaddr;
+
+			rec++;
+
+			err = check_and_set_masks(rsmu, (u16)regaddr, val);
+		}
+
+		if (err != -EINVAL) {
+			err = 0;
+
+			/* Top (status registers) and bottom are read-only */
+			if (regaddr < SCSR_ADDR(GPIO_USER_CONTROL) || regaddr >= scratch)
+				continue;
+
+			/* Page size 128, last 4 bytes of page skipped */
+			if ((loaddr > 0x7b && loaddr <= 0x7f) || loaddr > 0xfb)
+				continue;
+
+			err = regmap_bulk_write(rsmu->regmap, SCSR_BASE + regaddr,
+					       &val, sizeof(val));
+		}
+
+		if (err)
+			goto out;
 	}
 
-	rsmu->fw_version = V_DEFAULT;
+out:
+	release_firmware(fw);
+	return err;
+}
+
+static int rsmu_cm_get_clock_index(struct rsmu_cdev *rsmu,
+				u8 dpll,
+				s8 *clock_index)
+{
+	u8 reg;
+	int err;
+
+	/* 8 is sys dpll */
+	if (dpll > 8)
+		return -EINVAL;
+
+	err = regmap_bulk_read(rsmu->regmap, STATUS + DPLL0_REF_STATUS + dpll,
+						&reg, sizeof(reg));
+	if (err)
+		return err;
+
+	reg &= DPLL_REF_STATUS_MASK;
+
+	if (reg > (MAX_ELECTRICAL_REFERENCES - 1))
+		*clock_index = -1;
+	else
+		*clock_index = reg;
+
+	return err;
+}
+
+static int rsmu_cm_set_clock_priorities(struct rsmu_cdev *rsmu, u8 dpll, u8 number_entries,
+				struct rsmu_priority_entry *priority_entry)
+{
+	u32 dpll_reg_addr;
+	u8 dpll_mode_reg_off;
+	int priority_index;
+	u8 prev_priority_group = 0;
+	u8 current_priority_group;
+	int prev_priority = -1;
+	u8 reg;
+	int err;
+
+	err = get_dpll_reg_offset(FW_VERSION(rsmu), dpll, &dpll_reg_addr);
+	if (err)
+		return err;
+
+	/* MAX_REF_PRIORITIES is maximum number of priorities */
+	if (number_entries > MAX_REF_PRIORITIES)
+		return -EINVAL;
+
+	dpll_mode_reg_off = IDTCM_FW_REG(FW_VERSION(rsmu), V520, DPLL_MODE);
+
+	for (priority_index = 0; priority_index < number_entries; priority_index++) {
+		if ((priority_entry->clock_index >= MAX_ELECTRICAL_REFERENCES) ||
+		    (priority_entry->priority >= MAX_REF_PRIORITIES))
+			return -EINVAL;
+
+		if (priority_entry->priority == prev_priority) {
+			current_priority_group = prev_priority_group;
+		} else if ((priority_index < (number_entries - 1)) &&
+			  (priority_entry->priority == (priority_entry + 1)->priority)) {
+			if (prev_priority_group < MAX_PRIORITY_GROUP) {
+				prev_priority_group++;
+				current_priority_group = prev_priority_group;
+			} else {
+				current_priority_group = DEFAULT_PRIORITY_GROUP;
+			}
+		} else {
+			current_priority_group = DEFAULT_PRIORITY_GROUP;
+		}
+
+		prev_priority = priority_entry->priority;
+
+		reg = (u8)((1 << DPLL_REF_PRIORITY_ENABLE_SHIFT) |
+			(priority_entry->clock_index << DPLL_REF_PRIORITY_REF_SHIFT) |
+			(current_priority_group << DPLL_REF_PRIORITY_GROUP_NUMBER_SHIFT));
+
+		err = regmap_bulk_write(rsmu->regmap, dpll_reg_addr + DPLL_REF_PRIORITY_0 +
+					priority_index, &reg, sizeof(reg));
+		if (err)
+			return err;
+
+		priority_entry++;
+	}
+
+	for (; priority_index < MAX_REF_PRIORITIES; priority_index++) {
+		reg = (0 << DPLL_REF_PRIORITY_ENABLE_SHIFT) |
+			(0 << DPLL_REF_PRIORITY_REF_SHIFT) |
+			(DEFAULT_PRIORITY_GROUP << DPLL_REF_PRIORITY_GROUP_NUMBER_SHIFT);
+
+		err = regmap_bulk_write(rsmu->regmap, dpll_reg_addr + DPLL_REF_PRIORITY_0 +
+					priority_index, &reg, sizeof(reg));
+		if (err)
+			return err;
+	}
+
+	err = regmap_bulk_read(rsmu->regmap, dpll_reg_addr + dpll_mode_reg_off,
+			       &reg, sizeof(reg));
+	if (err)
+		return err;
+
+	return regmap_bulk_write(rsmu->regmap, dpll_reg_addr + dpll_mode_reg_off,
+				 &reg, sizeof(reg));
+}
+
+static int rsmu_cm_get_reference_monitor_status(struct rsmu_cdev *rsmu, u8 clock_index,
+				struct rsmu_reference_monitor_status_alarms *alarms)
+{
+	u8 reg;
+	int err;
+
+	/* MAX_ELECTRICAL_REFERENCES is maximum number of electrical references */
+	if (clock_index >= MAX_ELECTRICAL_REFERENCES)
+		return -EINVAL;
+
+	err = regmap_bulk_read(rsmu->regmap, STATUS + IN0_MON_STATUS + clock_index,
+						&reg, sizeof(reg));
+	if (err)
+		return err;
+
+	alarms->los = (reg >> IN_MON_STATUS_LOS_SHIFT) & 1;
+	alarms->no_activity = (reg >> IN_MON_STATUS_NO_ACT_SHIFT) & 1;
+	alarms->frequency_offset_limit = (reg >> IN_MON_STATUS_FFO_LIMIT_SHIFT) & 1;
+
+	return err;
+}
+
+static int rsmu_cm_init(struct rsmu_cdev *rsmu, char fwname[FW_NAME_LEN_MAX])
+{
+	struct rsmucm *ddata;
+	int err;
+
+	ddata = devm_kzalloc(rsmu->dev, sizeof(*ddata), GFP_KERNEL);
+	if (!ddata)
+		return -ENOMEM;
+	rsmu->ddata = ddata;
+
+	err = load_firmware(rsmu, fwname);
+	if (err)
+		dev_warn(rsmu->dev, "loading firmware failed with %d", err);
+
+	err = get_fw_version(rsmu);
+	if (err) {
+		dev_err(rsmu->dev, "getting firmware version failed with %d", err);
+		return err;
+	}
+
 	return 0;
 }
 
 struct rsmu_ops cm_ops = {
 	.type = RSMU_CM,
+	.device_init = rsmu_cm_init,
 	.set_combomode = rsmu_cm_set_combomode,
 	.get_dpll_state = rsmu_cm_get_dpll_state,
 	.get_dpll_ffo = rsmu_cm_get_dpll_ffo,
 	.set_holdover_mode = rsmu_cm_set_holdover_mode,
 	.set_output_tdc_go = rsmu_cm_set_output_tdc_go,
-	.get_fw_version = rsmu_cm_get_fw_version,
+	.get_clock_index = rsmu_cm_get_clock_index,
+	.set_clock_priorities = rsmu_cm_set_clock_priorities,
+	.get_reference_monitor_status = rsmu_cm_get_reference_monitor_status
 };
