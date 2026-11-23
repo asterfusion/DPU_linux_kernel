@@ -217,7 +217,8 @@ int otx2_set_mac_address(struct net_device *netdev, void *p)
 		eth_hw_addr_set(netdev, addr->sa_data);
 		/* update dmac field in vlan offload rule */
 		if (netif_running(netdev) &&
-		    pfvf->flags & OTX2_FLAG_RX_VLAN_SUPPORT)
+		    pfvf->flags & OTX2_FLAG_RX_VLAN_SUPPORT &&
+		    netdev->features & NETIF_F_HW_VLAN_CTAG_RX)
 			otx2_install_rxvlan_offload_flow(pfvf);
 		/* update dmac address in ntuple and DMAC filter list */
 		if (pfvf->flags & OTX2_FLAG_DMACFLTR_SUPPORT)

@@ -1563,7 +1563,7 @@ static bool otx2_xdp_rcv_pkt_handler(struct otx2_nic *pfvf,
 	struct xdp_buff xdp, *xsk_buff = NULL;
 	struct page *page;
 	void *orig_data;
-	u64 iova, pa;
+	u64 iova, pa, tx_iova = 0;
 	u32 act;
 
 	pool = &pfvf->qset.pool[qidx];
@@ -1595,6 +1595,12 @@ static bool otx2_xdp_rcv_pkt_handler(struct otx2_nic *pfvf,
 		offset = orig_data - xdp.data;
 		iova = cqe->sg.seg_addr - offset;
 	}
+	/* XDP_TX must send from the current packet data (cqe->sg.seg_addr,
+	 * shifted if the program moved the head). iova above still points at
+	 * the start of the headroom when the head is unchanged, which put
+	 * headroom bytes on the wire instead of the packet.
+	 */
+	tx_iova = cqe->sg.seg_addr - (orig_data - xdp.data);
 	len = xdp.data_end - xdp.data;
 
 handle_xdp_verdict:
@@ -1605,7 +1611,7 @@ handle_xdp_verdict:
 		qidx += pfvf->hw.tx_queues;
 		cq->pool_ptrs++;
 		xdpf = xdp_convert_buff_to_frame(&xdp);
-		return otx2_xdp_sq_append_pkt(pfvf, xdpf, iova,
+		return otx2_xdp_sq_append_pkt(pfvf, xdpf, xsk_buff ? iova : tx_iova,
 					      len, qidx, OTX2_XDP_TX);
 	case XDP_REDIRECT:
 		cq->pool_ptrs++;
