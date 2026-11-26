@@ -835,6 +835,7 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 	}
 
 	target_is_local = arp->ar_op == htons(ARPOP_REQUEST) &&
+		READ_ONCE(net->ipv4.sysctl_arp_local_table_first) &&
 		inet_addr_type_table(net, tip, RT_TABLE_LOCAL) == RTN_LOCAL;
 
 	if (arp->ar_op == htons(ARPOP_REQUEST) &&
