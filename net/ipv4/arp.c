@@ -710,6 +710,7 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 	struct neighbour *n;
 	struct dst_entry *reply_dst = NULL;
 	bool is_garp = false;
+	bool target_is_local;
 
 	/* arp_rcv below verifies the ARP header and verifies the device
 	 * is ARP'able.
@@ -833,11 +834,20 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 		goto out_consume_skb;
 	}
 
-	if (arp->ar_op == htons(ARPOP_REQUEST) &&
-	    ip_route_input_noref(skb, tip, sip, 0, dev) == 0) {
+	target_is_local = arp->ar_op == htons(ARPOP_REQUEST) &&
+		READ_ONCE(net->ipv4.sysctl_arp_local_table_first) &&
+		inet_addr_type_table(net, tip, RT_TABLE_LOCAL) == RTN_LOCAL;
 
-		rt = skb_rtable(skb);
-		addr_type = rt->rt_type;
+	if (arp->ar_op == htons(ARPOP_REQUEST) &&
+	    (target_is_local ||
+	     ip_route_input_noref(skb, tip, sip, 0, dev) == 0)) {
+
+		if (target_is_local) {
+			addr_type = RTN_LOCAL;
+		} else {
+			rt = skb_rtable(skb);
+			addr_type = rt->rt_type;
+		}
 
 		if (addr_type == RTN_LOCAL) {
 			int dont_send;
